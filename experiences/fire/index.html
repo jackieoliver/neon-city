@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>NEON FIRE</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #0d0221;
+            font-family: 'Courier New', monospace;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .ui-overlay {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 8px;
+            z-index: 100;
+            opacity: 0.7;
+            transition: opacity 0.3s;
+        }
+
+        .ui-overlay:hover {
+            opacity: 1;
+        }
+
+        .mode-btn {
+            background: rgba(13, 2, 33, 0.8);
+            border: 1px solid #05d9e8;
+            color: #05d9e8;
+            padding: 8px 16px;
+            font-size: 11px;
+            font-family: 'Courier New', monospace;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            cursor: pointer;
+            transition: all 0.2s;
+            backdrop-filter: blur(10px);
+        }
+
+        .mode-btn:hover {
+            background: rgba(5, 217, 232, 0.2);
+            box-shadow: 0 0 20px rgba(5, 217, 232, 0.5);
+        }
+
+        .mode-btn.active {
+            background: linear-gradient(135deg, #ff2a6d, #05d9e8);
+            border-color: #ff2a6d;
+            color: #0d0221;
+            box-shadow: 0 0 30px rgba(255, 42, 109, 0.6);
+        }
+
+        .title {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #05d9e8;
+            font-size: 10px;
+            letter-spacing: 8px;
+            text-transform: uppercase;
+            opacity: 0.4;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        .fps-counter {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: #ff2a6d;
+            font-size: 10px;
+            opacity: 0.5;
+            z-index: 100;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #05d9e8;
+            font-size: 9px;
+            letter-spacing: 2px;
+            opacity: 0.3;
+            z-index: 100;
+            pointer-events: none;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div class="title">NEON FIRE</div>
+    <div class="fps-counter" id="fps">60 FPS</div>
+    <div class="instructions">MOVE MOUSE TO INTENSIFY FLAMES</div>
+
+    <div class="ui-overlay">
+        <button class="mode-btn active" data-palette="neon">NEON</button>
+        <button class="mode-btn" data-palette="classic">CLASSIC</button>
+        <button class="mode-btn" data-palette="plasma">PLASMA</button>
+        <button class="mode-btn" data-palette="ice">ICE</button>
+        <button class="mode-btn" data-palette="toxic">TOXIC</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const fpsEl = document.getElementById('fps');
+
+        // Configuration
+        const CONFIG = {
+            fireWidth: 0,
+            fireHeight: 0,
+            pixelSize: 3,
+            cooling: 0.4,
+            spreadRate: 1.6,
+            mouseRadius: 120,
+            mouseIntensity: 80,
+            particleCount: 150,
+            emberCount: 60
+        };
+
+        // Color palettes - each has 256 colors from hot to cold
+        const PALETTES = {
+            neon: generateNeonPalette(),
+            classic: generateClassicPalette(),
+            plasma: generatePlasmaPalette(),
+            ice: generateIcePalette(),
+            toxic: generateToxicPalette()
+        };
+
+        function generateNeonPalette() {
+            const palette = [];
+            for (let i = 0; i < 256; i++) {
+                let r, g, b;
+                if (i < 32) {
+                    // Black to deep purple
+                    const t = i / 32;
+                    r = Math.floor(13 + t * 40);
+                    g = Math.floor(2 + t * 10);
+                    b = Math.floor(33 + t * 60);
+                } else if (i < 96) {
+                    // Deep purple to hot pink (#ff2a6d)
+                    const t = (i - 32) / 64;
+                    r = Math.floor(53 + t * 202);
+                    g = Math.floor(12 + t * 30);
+                    b = Math.floor(93 + t * 16);
+                } else if (i < 160) {
+                    // Hot pink to orange
+                    const t = (i - 96) / 64;
+                    r = 255;
+                    g = Math.floor(42 + t * 123);
+                    b = Math.floor(109 - t * 109);
+                } else if (i < 224) {
+                    // Orange to cyan (#05d9e8)
+                    const t = (i - 160) / 64;
+                    r = Math.floor(255 - t * 250);
+                    g = Math.floor(165 + t * 52);
+                    b = Math.floor(0 + t * 232);
+                } else {
+                    // Cyan to white
+                    const t = (i - 224) / 32;
+                    r = Math.floor(5 + t * 250);
+                    g = Math.floor(217 + t * 38);
+                    b = Math.floor(232 + t * 23);
+                }
+                palette.push(`rgb(${r},${g},${b})`);
+            }
+            return palette;
+        }
+
+        function generateClassicPalette() {
+            const palette = [];
+            for (let i = 0; i < 256; i++) {
+                let r, g, b;
+                if (i < 32) {
+                    r = Math.floor(i * 2);
+                    g = 0;
+                    b = 0;
+                } else if (i < 96) {
+                    r = Math.floor(64 + (i - 32) * 3);
+                    g = 0;
+                    b = 0;
+                } else if (i < 160) {
+                    r = 255;
+                    g = Math.floor((i - 96) * 4);
+                    b = 0;
+                } else if (i < 224) {
+                    r = 255;
+                    g = 255;
+                    b = Math.floor((i - 160) * 4);
+                } else {
+                    r = 255;
+                    g = 255;
+                    b = 255;
+                }
+                palette.push(`rgb(${r},${g},${b})`);
+            }
+            return palette;
+        }
+
+        function generatePlasmaPalette() {
+            const palette = [];
+            for (let i = 0; i < 256; i++) {
+                const t = i / 255;
+                const r = Math.floor(Math.sin(t * Math.PI * 2 + 0) * 127 + 128);
+                const g = Math.floor(Math.sin(t * Math.PI * 2 + 2) * 127 + 128);
+                const b = Math.floor(Math.sin(t * Math.PI * 2 + 4) * 127 + 128);
+                palette.push(`rgb(${r},${g},${b})`);
+            }
+            return palette;
+        }
+
+        function generateIcePalette() {
+            const palette = [];
+            for (let i = 0; i < 256; i++) {
+                let r, g, b;
+                if (i < 64) {
+                    const t = i / 64;
+                    r = Math.floor(t * 20);
+                    g = Math.floor(t * 30);
+                    b = Math.floor(40 + t * 80);
+                } else if (i < 160) {
+                    const t = (i - 64) / 96;
+                    r = Math.floor(20 + t * 60);
+                    g = Math.floor(30 + t * 180);
+                    b = Math.floor(120 + t * 100);
+                } else {
+                    const t = (i - 160) / 96;
+                    r = Math.floor(80 + t * 175);
+                    g = Math.floor(210 + t * 45);
+                    b = Math.floor(220 + t * 35);
+                }
+                palette.push(`rgb(${r},${g},${b})`);
+            }
+            return palette;
+        }
+
+        function generateToxicPalette() {
+            const palette = [];
+            for (let i = 0; i < 256; i++) {
+                let r, g, b;
+                if (i < 64) {
+                    const t = i / 64;
+                    r = Math.floor(t * 30);
+                    g = Math.floor(20 + t * 60);
+                    b = Math.floor(t * 20);
+                } else if (i < 160) {
+                    const t = (i - 64) / 96;
+                    r = Math.floor(30 + t * 50);
+                    g = Math.floor(80 + t * 175);
+                    b = Math.floor(20 + t * 30);
+                } else {
+                    const t = (i - 160) / 96;
+                    r = Math.floor(80 + t * 175);
+                    g = 255;
+                    b = Math.floor(50 + t * 150);
+                }
+                palette.push(`rgb(${r},${g},${b})`);
+            }
+            return palette;
+        }
+
+        // State
+        let width, height;
+        let fireBuffer;
+        let mouse = { x: null, y: null, active: false };
+        let currentPalette = 'neon';
+        let time = 0;
+        let particles = [];
+        let embers = [];
+
+        // FPS tracking
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+
+        // Resize handler
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+
+            CONFIG.fireWidth = Math.ceil(width / CONFIG.pixelSize);
+            CONFIG.fireHeight = Math.ceil(height / CONFIG.pixelSize);
+
+            // Initialize fire buffer
+            fireBuffer = new Uint8Array(CONFIG.fireWidth * CONFIG.fireHeight);
+
+            // Re-initialize particles
+            initParticles();
+            initEmbers();
+        }
+
+        // Particle class for extra visual flair
+        class FireParticle {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.x = Math.random() * width;
+                this.y = height + Math.random() * 50;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = -(Math.random() * 4 + 2);
+                this.size = Math.random() * 4 + 2;
+                this.life = 1;
+                this.decay = Math.random() * 0.015 + 0.008;
+                this.wobble = Math.random() * Math.PI * 2;
+                this.wobbleSpeed = Math.random() * 0.1 + 0.05;
+            }
+
+            update() {
+                this.wobble += this.wobbleSpeed;
+                this.x += this.vx + Math.sin(this.wobble) * 0.5;
+                this.y += this.vy;
+                this.vy *= 0.99;
+                this.life -= this.decay;
+
+                if (this.life <= 0 || this.y < -50) {
+                    this.reset();
+                }
+
+                // Mouse interaction
+                if (mouse.active && mouse.x !== null) {
+                    const dx = mouse.x - this.x;
+                    const dy = mouse.y - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < CONFIG.mouseRadius * 2) {
+                        const force = (CONFIG.mouseRadius * 2 - dist) / (CONFIG.mouseRadius * 2);
+                        this.vx += (Math.random() - 0.5) * force * 2;
+                        this.vy -= force * 0.5;
+                        this.life = Math.min(1, this.life + force * 0.02);
+                    }
+                }
+            }
+
+            draw(palette) {
+                const colorIndex = Math.floor(this.life * 200) + 55;
+                const color = palette[Math.min(255, colorIndex)];
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.fill();
+
+                // Glow
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * this.life * 3
+                );
+                gradient.addColorStop(0, color);
+                gradient.addColorStop(1, 'transparent');
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * this.life * 3, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+        }
+
+        // Ember class - rising sparks
+        class Ember {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.x = Math.random() * width;
+                this.y = height + 20;
+                this.vx = (Math.random() - 0.5) * 1;
+                this.vy = -(Math.random() * 2 + 1);
+                this.size = Math.random() * 2 + 1;
+                this.life = 1;
+                this.decay = Math.random() * 0.005 + 0.002;
+                this.flickerPhase = Math.random() * Math.PI * 2;
+            }
+
+            update() {
+                this.flickerPhase += 0.3;
+                this.x += this.vx + Math.sin(time * 0.02 + this.flickerPhase) * 0.3;
+                this.y += this.vy;
+                this.life -= this.decay;
+
+                if (this.life <= 0 || this.y < -20) {
+                    this.reset();
+                }
+
+                // Mouse interaction
+                if (mouse.active && mouse.x !== null) {
+                    const dx = mouse.x - this.x;
+                    const dy = mouse.y - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < CONFIG.mouseRadius) {
+                        this.vx += (Math.random() - 0.5) * 0.5;
+                        this.vy -= 0.1;
+                    }
+                }
+            }
+
+            draw(palette) {
+                const flicker = 0.5 + Math.sin(this.flickerPhase) * 0.5;
+                const colorIndex = Math.floor(this.life * 150 * flicker) + 100;
+                const color = palette[Math.min(255, colorIndex)];
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * flicker, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.fill();
+            }
+        }
+
+        function initParticles() {
+            particles = [];
+            for (let i = 0; i < CONFIG.particleCount; i++) {
+                particles.push(new FireParticle());
+            }
+        }
+
+        function initEmbers() {
+            embers = [];
+            for (let i = 0; i < CONFIG.emberCount; i++) {
+                const ember = new Ember();
+                ember.y = Math.random() * height;
+                embers.push(ember);
+            }
+        }
+
+        // Classic demoscene fire algorithm
+        function updateFire() {
+            const w = CONFIG.fireWidth;
+            const h = CONFIG.fireHeight;
+
+            // Set bottom row on fire with variation
+            for (let x = 0; x < w; x++) {
+                const baseIntensity = 200 + Math.floor(Math.random() * 56);
+                const waveIntensity = Math.sin(x * 0.1 + time * 0.05) * 30;
+                fireBuffer[(h - 1) * w + x] = Math.min(255, Math.max(0, baseIntensity + waveIntensity));
+
+                // Extra heat sources
+                if (Math.random() < 0.1) {
+                    fireBuffer[(h - 2) * w + x] = 255;
+                }
+            }
+
+            // Mouse heat source
+            if (mouse.active && mouse.x !== null) {
+                const mx = Math.floor(mouse.x / CONFIG.pixelSize);
+                const my = Math.floor(mouse.y / CONFIG.pixelSize);
+                const radius = Math.floor(CONFIG.mouseRadius / CONFIG.pixelSize);
+
+                for (let dy = -radius; dy <= radius; dy++) {
+                    for (let dx = -radius; dx <= radius; dx++) {
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < radius) {
+                            const px = mx + dx;
+                            const py = my + dy;
+                            if (px >= 0 && px < w && py >= 0 && py < h) {
+                                const intensity = CONFIG.mouseIntensity * (1 - dist / radius);
+                                const idx = py * w + px;
+                                fireBuffer[idx] = Math.min(255, fireBuffer[idx] + intensity);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Propagate fire upward
+            for (let y = 0; y < h - 1; y++) {
+                for (let x = 0; x < w; x++) {
+                    // Sample from below with spread
+                    const spreadX = Math.floor(Math.random() * 3) - 1;
+                    const srcX = Math.max(0, Math.min(w - 1, x + spreadX));
+
+                    // Average multiple source pixels for smoother fire
+                    let sum = 0;
+                    let count = 0;
+
+                    for (let sx = -1; sx <= 1; sx++) {
+                        const sampleX = Math.max(0, Math.min(w - 1, x + sx));
+                        sum += fireBuffer[(y + 1) * w + sampleX];
+                        count++;
+                    }
+                    sum += fireBuffer[(y + 1) * w + srcX] * CONFIG.spreadRate;
+                    count += CONFIG.spreadRate;
+
+                    // Apply cooling as fire rises
+                    const coolingFactor = CONFIG.cooling + Math.random() * 0.3;
+                    let newVal = (sum / count) - coolingFactor;
+
+                    // Extra cooling near top
+                    const topFactor = 1 - (y / h);
+                    newVal -= topFactor * 0.5;
+
+                    fireBuffer[y * w + x] = Math.max(0, Math.min(255, newVal));
+                }
+            }
+        }
+
+        // Render fire buffer to canvas
+        function renderFire() {
+            const palette = PALETTES[currentPalette];
+            const w = CONFIG.fireWidth;
+            const h = CONFIG.fireHeight;
+            const pixelSize = CONFIG.pixelSize;
+
+            // Use image data for faster rendering
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+
+            for (let fy = 0; fy < h; fy++) {
+                for (let fx = 0; fx < w; fx++) {
+                    const intensity = fireBuffer[fy * w + fx];
+                    const color = palette[intensity];
+
+                    // Parse RGB from color string
+                    const match = color.match(/rgb\((\d+),(\d+),(\d+)\)/);
+                    if (!match) continue;
+
+                    const r = parseInt(match[1]);
+                    const g = parseInt(match[2]);
+                    const b = parseInt(match[3]);
+
+                    // Fill the pixel block
+                    for (let py = 0; py < pixelSize; py++) {
+                        for (let px = 0; px < pixelSize; px++) {
+                            const canvasX = fx * pixelSize + px;
+                            const canvasY = fy * pixelSize + py;
+
+                            if (canvasX < width && canvasY < height) {
+                                const idx = (canvasY * width + canvasX) * 4;
+                                data[idx] = r;
+                                data[idx + 1] = g;
+                                data[idx + 2] = b;
+                                data[idx + 3] = 255;
+                            }
+                        }
+                    }
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        // Main animation loop
+        function animate() {
+            // Clear canvas
+            ctx.fillStyle = '#0d0221';
+            ctx.fillRect(0, 0, width, height);
+
+            // Update and render fire
+            updateFire();
+            renderFire();
+
+            // Enable additive blending for particles
+            ctx.globalCompositeOperation = 'lighter';
+
+            // Update and draw particles
+            const palette = PALETTES[currentPalette];
+            particles.forEach(p => {
+                p.update();
+                p.draw(palette);
+            });
+
+            // Update and draw embers
+            embers.forEach(e => {
+                e.update();
+                e.draw(palette);
+            });
+
+            // Reset composite
+            ctx.globalCompositeOperation = 'source-over';
+
+            // Draw heat shimmer effect at bottom
+            const shimmerGradient = ctx.createLinearGradient(0, height - 100, 0, height);
+            shimmerGradient.addColorStop(0, 'transparent');
+            shimmerGradient.addColorStop(1, palette[200] + '40');
+            ctx.fillStyle = shimmerGradient;
+            ctx.fillRect(0, height - 100, width, 100);
+
+            // FPS counter
+            frameCount++;
+            const now = performance.now();
+            if (now - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = now;
+                fpsEl.textContent = fps + ' FPS';
+            }
+
+            time++;
+            requestAnimationFrame(animate);
+        }
+
+        // Event listeners
+        function handlePointer(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            mouse.x = clientX - rect.left;
+            mouse.y = clientY - rect.top;
+            mouse.active = true;
+        }
+
+        canvas.addEventListener('mousemove', handlePointer);
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            handlePointer(e);
+        }, { passive: false });
+
+        canvas.addEventListener('mouseenter', () => mouse.active = true);
+        canvas.addEventListener('mouseleave', () => mouse.active = false);
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            handlePointer(e);
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', () => mouse.active = false);
+
+        // Click to create burst of particles
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            for (let i = 0; i < 20; i++) {
+                const p = new FireParticle();
+                p.x = x + (Math.random() - 0.5) * 50;
+                p.y = y + (Math.random() - 0.5) * 50;
+                p.vy = -(Math.random() * 6 + 3);
+                p.vx = (Math.random() - 0.5) * 4;
+                particles.push(p);
+            }
+
+            // Trim particles if too many
+            while (particles.length > CONFIG.particleCount * 2) {
+                particles.shift();
+            }
+        });
+
+        // Palette buttons
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentPalette = btn.dataset.palette;
+            });
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            const keys = { '1': 'neon', '2': 'classic', '3': 'plasma', '4': 'ice', '5': 'toxic' };
+            if (keys[e.key]) {
+                currentPalette = keys[e.key];
+                document.querySelectorAll('.mode-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.palette === currentPalette);
+                });
+            }
+        });
+
+        // Window resize
+        window.addEventListener('resize', resize);
+
+        // Initialize
+        resize();
+        animate();
+    </script>
+</body>
+</html>

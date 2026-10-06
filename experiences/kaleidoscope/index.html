@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Kaleidoscope</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            cursor: crosshair;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            z-index: 100;
+            background: rgba(10, 10, 15, 0.8);
+            padding: 15px 25px;
+            border-radius: 50px;
+            border: 1px solid rgba(5, 217, 232, 0.3);
+            backdrop-filter: blur(10px);
+        }
+
+        .control-btn {
+            background: transparent;
+            border: 2px solid #05d9e8;
+            color: #05d9e8;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .control-btn:hover {
+            background: #05d9e8;
+            color: #0a0a0f;
+            box-shadow: 0 0 20px rgba(5, 217, 232, 0.5);
+        }
+
+        .control-btn.active {
+            background: #ff2a6d;
+            border-color: #ff2a6d;
+            color: #fff;
+            box-shadow: 0 0 20px rgba(255, 42, 109, 0.5);
+        }
+
+        .symmetry-display {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: #05d9e8;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px rgba(5, 217, 232, 0.5);
+            z-index: 100;
+        }
+
+        .title {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: #ff2a6d;
+            font-size: 24px;
+            font-weight: 300;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            text-shadow: 0 0 20px rgba(255, 42, 109, 0.5);
+            z-index: 100;
+        }
+
+        .instructions {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 16px;
+            letter-spacing: 2px;
+            text-align: center;
+            pointer-events: none;
+            opacity: 1;
+            transition: opacity 1s ease;
+            z-index: 50;
+        }
+
+        .instructions.hidden {
+            opacity: 0;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="kaleidoscope"></canvas>
+
+    <div class="title">Neon Kaleidoscope</div>
+    <div class="symmetry-display">Symmetry: <span id="symmetry-value">8</span></div>
+
+    <div class="instructions" id="instructions">
+        Move your mouse to create patterns<br>
+        <small>Click anywhere to begin</small>
+    </div>
+
+    <div class="controls">
+        <button class="control-btn" id="btn-decrease">- Symmetry</button>
+        <button class="control-btn" id="btn-increase">+ Symmetry</button>
+        <button class="control-btn" id="btn-auto">Auto Mode</button>
+        <button class="control-btn" id="btn-clear">Clear</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('kaleidoscope');
+        const ctx = canvas.getContext('2d');
+
+        // Neon color palette
+        const neonColors = [
+            '#ff2a6d', // Hot pink
+            '#05d9e8', // Cyan
+            '#d300c5', // Magenta
+            '#00ff9f', // Neon green
+            '#ff6b35', // Orange
+            '#7b2cbf', // Purple
+        ];
+
+        // State
+        let width, height, centerX, centerY;
+        let symmetry = 8;
+        let mouseX = 0, mouseY = 0;
+        let lastMouseX = 0, lastMouseY = 0;
+        let isAutoMode = false;
+        let autoTime = 0;
+        let idleTime = 0;
+        let isIdle = false;
+        let particles = [];
+        let trails = [];
+        let shapes = [];
+        let hasInteracted = false;
+
+        // Resize handler
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Particle class for dynamic effects
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.originX = x;
+                this.originY = y;
+                this.color = color;
+                this.size = Math.random() * 4 + 2;
+                this.speedX = (Math.random() - 0.5) * 4;
+                this.speedY = (Math.random() - 0.5) * 4;
+                this.life = 1;
+                this.decay = Math.random() * 0.02 + 0.005;
+                this.angle = Math.random() * Math.PI * 2;
+                this.rotationSpeed = (Math.random() - 0.5) * 0.1;
+            }
+
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                this.speedX *= 0.98;
+                this.speedY *= 0.98;
+                this.life -= this.decay;
+                this.angle += this.rotationSpeed;
+                this.size *= 0.99;
+            }
+
+            draw(ctx) {
+                if (this.life <= 0) return;
+                ctx.save();
+                ctx.globalAlpha = this.life * 0.8;
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // Shape class for morphing geometric patterns
+        class Shape {
+            constructor(x, y, type) {
+                this.x = x;
+                this.y = y;
+                this.type = type;
+                this.size = Math.random() * 30 + 10;
+                this.targetSize = this.size;
+                this.rotation = Math.random() * Math.PI * 2;
+                this.rotationSpeed = (Math.random() - 0.5) * 0.05;
+                this.color = neonColors[Math.floor(Math.random() * neonColors.length)];
+                this.life = 1;
+                this.decay = Math.random() * 0.008 + 0.002;
+                this.vertices = Math.floor(Math.random() * 4) + 3;
+                this.morphPhase = Math.random() * Math.PI * 2;
+                this.morphSpeed = Math.random() * 0.05 + 0.02;
+            }
+
+            update() {
+                this.rotation += this.rotationSpeed;
+                this.morphPhase += this.morphSpeed;
+                this.size += (this.targetSize - this.size) * 0.1;
+                this.size += Math.sin(this.morphPhase) * 0.5;
+                this.life -= this.decay;
+            }
+
+            draw(ctx) {
+                if (this.life <= 0) return;
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+                ctx.globalAlpha = this.life * 0.6;
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 2;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = this.color;
+
+                const morphedSize = this.size + Math.sin(this.morphPhase * 2) * 5;
+
+                if (this.type === 'polygon') {
+                    ctx.beginPath();
+                    for (let i = 0; i < this.vertices; i++) {
+                        const angle = (i / this.vertices) * Math.PI * 2;
+                        const wobble = Math.sin(this.morphPhase + i) * 5;
+                        const px = Math.cos(angle) * (morphedSize + wobble);
+                        const py = Math.sin(angle) * (morphedSize + wobble);
+                        if (i === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    }
+                    ctx.closePath();
+                    ctx.stroke();
+                } else if (this.type === 'star') {
+                    ctx.beginPath();
+                    for (let i = 0; i < this.vertices * 2; i++) {
+                        const angle = (i / (this.vertices * 2)) * Math.PI * 2;
+                        const radius = i % 2 === 0 ? morphedSize : morphedSize * 0.5;
+                        const wobble = Math.sin(this.morphPhase + i * 0.5) * 3;
+                        const px = Math.cos(angle) * (radius + wobble);
+                        const py = Math.sin(angle) * (radius + wobble);
+                        if (i === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    }
+                    ctx.closePath();
+                    ctx.stroke();
+                } else if (this.type === 'spiral') {
+                    ctx.beginPath();
+                    for (let i = 0; i < 100; i++) {
+                        const angle = (i / 100) * Math.PI * 4;
+                        const radius = (i / 100) * morphedSize;
+                        const px = Math.cos(angle + this.morphPhase) * radius;
+                        const py = Math.sin(angle + this.morphPhase) * radius;
+                        if (i === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    }
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+            }
+        }
+
+        // Trail class for smooth drawing
+        class Trail {
+            constructor(x, y, color) {
+                this.points = [{x, y, size: Math.random() * 8 + 4}];
+                this.color = color;
+                this.life = 1;
+                this.decay = 0.003;
+                this.maxPoints = 50;
+            }
+
+            addPoint(x, y) {
+                this.points.push({x, y, size: Math.random() * 8 + 4});
+                if (this.points.length > this.maxPoints) {
+                    this.points.shift();
+                }
+            }
+
+            update() {
+                this.life -= this.decay;
+            }
+
+            draw(ctx) {
+                if (this.life <= 0 || this.points.length < 2) return;
+                ctx.save();
+                ctx.globalAlpha = this.life * 0.7;
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color;
+
+                ctx.beginPath();
+                ctx.moveTo(this.points[0].x, this.points[0].y);
+                for (let i = 1; i < this.points.length; i++) {
+                    const p0 = this.points[i - 1];
+                    const p1 = this.points[i];
+                    const midX = (p0.x + p1.x) / 2;
+                    const midY = (p0.y + p1.y) / 2;
+                    ctx.quadraticCurveTo(p0.x, p0.y, midX, midY);
+                }
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        // Draw with kaleidoscope symmetry
+        function drawWithSymmetry(drawFunc) {
+            const sliceAngle = (Math.PI * 2) / symmetry;
+
+            ctx.save();
+            ctx.translate(centerX, centerY);
+
+            for (let i = 0; i < symmetry; i++) {
+                ctx.save();
+                ctx.rotate(sliceAngle * i);
+                drawFunc();
+
+                // Mirror reflection for each slice
+                ctx.scale(1, -1);
+                drawFunc();
+                ctx.restore();
+            }
+
+            ctx.restore();
+        }
+
+        // Create particles at position
+        function createParticles(x, y, count = 5) {
+            for (let i = 0; i < count; i++) {
+                const color = neonColors[Math.floor(Math.random() * neonColors.length)];
+                particles.push(new Particle(x - centerX, y - centerY, color));
+            }
+        }
+
+        // Create shape at position
+        function createShape(x, y) {
+            const types = ['polygon', 'star', 'spiral'];
+            const type = types[Math.floor(Math.random() * types.length)];
+            shapes.push(new Shape(x - centerX, y - centerY, type));
+        }
+
+        // Create trail
+        function createTrail(x, y) {
+            const color = neonColors[Math.floor(Math.random() * neonColors.length)];
+            trails.push(new Trail(x - centerX, y - centerY, color));
+            return trails[trails.length - 1];
+        }
+
+        let currentTrail = null;
+
+        // Mouse handlers
+        canvas.addEventListener('mousemove', (e) => {
+            if (!hasInteracted) {
+                hasInteracted = true;
+                document.getElementById('instructions').classList.add('hidden');
+            }
+
+            lastMouseX = mouseX;
+            lastMouseY = mouseY;
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            idleTime = 0;
+            isIdle = false;
+
+            // Calculate movement speed
+            const dx = mouseX - lastMouseX;
+            const dy = mouseY - lastMouseY;
+            const speed = Math.sqrt(dx * dx + dy * dy);
+
+            // Create particles based on movement
+            if (speed > 2) {
+                createParticles(mouseX, mouseY, Math.min(Math.floor(speed / 3), 8));
+            }
+
+            // Create shapes occasionally
+            if (Math.random() < 0.1 && speed > 5) {
+                createShape(mouseX, mouseY);
+            }
+
+            // Update or create trail
+            if (currentTrail && currentTrail.life > 0.5) {
+                currentTrail.addPoint(mouseX - centerX, mouseY - centerY);
+            } else {
+                currentTrail = createTrail(mouseX, mouseY);
+            }
+        });
+
+        canvas.addEventListener('click', () => {
+            if (!hasInteracted) {
+                hasInteracted = true;
+                document.getElementById('instructions').classList.add('hidden');
+            }
+            // Burst effect on click
+            for (let i = 0; i < 20; i++) {
+                createParticles(mouseX, mouseY, 3);
+            }
+            for (let i = 0; i < 5; i++) {
+                createShape(mouseX, mouseY);
+            }
+        });
+
+        // Control buttons
+        document.getElementById('btn-decrease').addEventListener('click', () => {
+            symmetry = Math.max(6, symmetry - 2);
+            document.getElementById('symmetry-value').textContent = symmetry;
+        });
+
+        document.getElementById('btn-increase').addEventListener('click', () => {
+            symmetry = Math.min(12, symmetry + 2);
+            document.getElementById('symmetry-value').textContent = symmetry;
+        });
+
+        document.getElementById('btn-auto').addEventListener('click', (e) => {
+            isAutoMode = !isAutoMode;
+            e.target.classList.toggle('active', isAutoMode);
+        });
+
+        document.getElementById('btn-clear').addEventListener('click', () => {
+            particles = [];
+            shapes = [];
+            trails = [];
+            ctx.fillStyle = 'rgba(10, 10, 15, 1)';
+            ctx.fillRect(0, 0, width, height);
+        });
+
+        // Keyboard controls
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowUp') {
+                symmetry = Math.min(12, symmetry + 2);
+                document.getElementById('symmetry-value').textContent = symmetry;
+            } else if (e.key === 'ArrowDown') {
+                symmetry = Math.max(6, symmetry - 2);
+                document.getElementById('symmetry-value').textContent = symmetry;
+            } else if (e.key === ' ') {
+                isAutoMode = !isAutoMode;
+                document.getElementById('btn-auto').classList.toggle('active', isAutoMode);
+            }
+        });
+
+        // Auto mode animation
+        function autoAnimate() {
+            autoTime += 0.02;
+
+            // Create smooth flowing patterns
+            const radius = 150 + Math.sin(autoTime * 0.5) * 100;
+            const x = centerX + Math.cos(autoTime) * radius;
+            const y = centerY + Math.sin(autoTime * 1.3) * radius * 0.6;
+
+            createParticles(x, y, 3);
+
+            if (Math.random() < 0.05) {
+                createShape(x, y);
+            }
+
+            // Secondary pattern
+            const x2 = centerX + Math.cos(autoTime * 0.7 + Math.PI) * radius * 0.8;
+            const y2 = centerY + Math.sin(autoTime + Math.PI) * radius * 0.5;
+
+            if (Math.random() < 0.5) {
+                createParticles(x2, y2, 2);
+            }
+
+            // Occasional symmetry changes in auto mode
+            if (Math.random() < 0.001) {
+                symmetry = 6 + Math.floor(Math.random() * 4) * 2;
+                document.getElementById('symmetry-value').textContent = symmetry;
+            }
+        }
+
+        // Idle animation (when no mouse movement)
+        function idleAnimate() {
+            const radius = 100 + Math.sin(autoTime * 0.3) * 50;
+            const x = centerX + Math.cos(autoTime * 0.5) * radius;
+            const y = centerY + Math.sin(autoTime * 0.7) * radius;
+
+            if (Math.random() < 0.3) {
+                createParticles(x, y, 1);
+            }
+
+            if (Math.random() < 0.02) {
+                createShape(x, y);
+            }
+        }
+
+        // Draw central mandala
+        function drawMandala(time) {
+            ctx.save();
+            ctx.translate(centerX, centerY);
+
+            const layers = 5;
+            for (let layer = 0; layer < layers; layer++) {
+                const layerRadius = 30 + layer * 40;
+                const segments = symmetry * 2;
+                const alpha = 0.3 - layer * 0.05;
+
+                ctx.strokeStyle = neonColors[layer % neonColors.length];
+                ctx.lineWidth = 1.5;
+                ctx.globalAlpha = alpha;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = neonColors[layer % neonColors.length];
+
+                ctx.beginPath();
+                for (let i = 0; i <= segments; i++) {
+                    const angle = (i / segments) * Math.PI * 2;
+                    const wobble = Math.sin(time * 2 + layer + i * 0.5) * 10;
+                    const r = layerRadius + wobble;
+                    const x = Math.cos(angle + time * 0.2 * (layer % 2 === 0 ? 1 : -1)) * r;
+                    const y = Math.sin(angle + time * 0.2 * (layer % 2 === 0 ? 1 : -1)) * r;
+
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.closePath();
+                ctx.stroke();
+            }
+
+            ctx.restore();
+        }
+
+        // Draw connecting lines between elements
+        function drawConnections(time) {
+            if (particles.length < 2) return;
+
+            ctx.save();
+            ctx.globalAlpha = 0.1;
+            ctx.strokeStyle = '#05d9e8';
+            ctx.lineWidth = 0.5;
+
+            const slice = (Math.PI * 2) / symmetry;
+
+            for (let s = 0; s < symmetry; s++) {
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.rotate(slice * s);
+
+                for (let i = 0; i < Math.min(particles.length, 20); i++) {
+                    for (let j = i + 1; j < Math.min(particles.length, 20); j++) {
+                        const p1 = particles[i];
+                        const p2 = particles[j];
+                        const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+
+                        if (dist < 100) {
+                            ctx.globalAlpha = (1 - dist / 100) * 0.1 * p1.life * p2.life;
+                            ctx.beginPath();
+                            ctx.moveTo(p1.x, p1.y);
+                            ctx.lineTo(p2.x, p2.y);
+                            ctx.stroke();
+                        }
+                    }
+                }
+
+                ctx.restore();
+            }
+
+            ctx.restore();
+        }
+
+        // Main animation loop
+        let lastTime = 0;
+        function animate(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+
+            // Semi-transparent overlay for trail effect
+            ctx.fillStyle = 'rgba(10, 10, 15, 0.08)';
+            ctx.fillRect(0, 0, width, height);
+
+            autoTime += 0.016;
+            idleTime += deltaTime;
+
+            // Check for idle state (3 seconds of no movement)
+            if (idleTime > 3000 && !isAutoMode) {
+                isIdle = true;
+            }
+
+            // Auto or idle animation
+            if (isAutoMode) {
+                autoAnimate();
+            } else if (isIdle) {
+                idleAnimate();
+            }
+
+            // Draw central mandala
+            drawMandala(autoTime);
+
+            // Draw connections
+            drawConnections(autoTime);
+
+            // Update and draw trails with symmetry
+            trails = trails.filter(trail => trail.life > 0);
+            trails.forEach(trail => {
+                trail.update();
+                drawWithSymmetry(() => trail.draw(ctx));
+            });
+
+            // Update and draw particles with symmetry
+            particles = particles.filter(p => p.life > 0);
+            particles.forEach(particle => {
+                particle.update();
+                drawWithSymmetry(() => particle.draw(ctx));
+            });
+
+            // Update and draw shapes with symmetry
+            shapes = shapes.filter(shape => shape.life > 0);
+            shapes.forEach(shape => {
+                shape.update();
+                drawWithSymmetry(() => shape.draw(ctx));
+            });
+
+            // Add subtle pulsing glow at center
+            const glowSize = 50 + Math.sin(autoTime * 2) * 20;
+            const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, glowSize);
+            gradient.addColorStop(0, 'rgba(211, 0, 197, 0.1)');
+            gradient.addColorStop(0.5, 'rgba(5, 217, 232, 0.05)');
+            gradient.addColorStop(1, 'rgba(255, 42, 109, 0)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(centerX - glowSize, centerY - glowSize, glowSize * 2, glowSize * 2);
+
+            requestAnimationFrame(animate);
+        }
+
+        // Start animation
+        requestAnimationFrame(animate);
+
+        // Initial particles burst
+        setTimeout(() => {
+            for (let i = 0; i < 30; i++) {
+                const angle = (i / 30) * Math.PI * 2;
+                const radius = 100;
+                const x = centerX + Math.cos(angle) * radius;
+                const y = centerY + Math.sin(angle) * radius;
+                createParticles(x, y, 2);
+            }
+        }, 500);
+    </script>
+</body>
+</html>

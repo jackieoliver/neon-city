@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FRACTAL // ABYSS</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            cursor: crosshair;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        .ui {
+            position: fixed;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        .title {
+            top: 20px;
+            left: 20px;
+            color: #05d9e8;
+            font-size: 10px;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            opacity: 0.7;
+            text-shadow: 0 0 10px #05d9e8;
+        }
+
+        .coords {
+            bottom: 20px;
+            left: 20px;
+            color: #ff2a6d;
+            font-size: 9px;
+            letter-spacing: 2px;
+            opacity: 0.6;
+            text-shadow: 0 0 8px #ff2a6d;
+            line-height: 1.6;
+        }
+
+        .controls {
+            top: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            pointer-events: auto;
+        }
+
+        .btn {
+            background: transparent;
+            border: 1px solid #05d9e8;
+            color: #05d9e8;
+            padding: 8px 16px;
+            font-family: inherit;
+            font-size: 9px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            opacity: 0.7;
+        }
+
+        .btn:hover {
+            background: #05d9e8;
+            color: #0a0a0f;
+            opacity: 1;
+            box-shadow: 0 0 20px #05d9e8;
+        }
+
+        .btn.active {
+            background: #ff2a6d;
+            border-color: #ff2a6d;
+            color: #0a0a0f;
+            opacity: 1;
+            box-shadow: 0 0 15px #ff2a6d;
+        }
+
+        .hint {
+            bottom: 20px;
+            right: 20px;
+            color: #7b2d8e;
+            font-size: 8px;
+            letter-spacing: 1px;
+            opacity: 0.5;
+            text-align: right;
+            line-height: 1.8;
+        }
+
+        .zoom-indicator {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            border: 1px solid #05d9e8;
+            border-radius: 50%;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .zoom-indicator::before,
+        .zoom-indicator::after {
+            content: '';
+            position: absolute;
+            background: #05d9e8;
+        }
+
+        .zoom-indicator::before {
+            width: 1px;
+            height: 10px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .zoom-indicator::after {
+            width: 10px;
+            height: 1px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        body:hover .zoom-indicator {
+            opacity: 0.3;
+        }
+
+        .vignette {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: radial-gradient(ellipse at center, transparent 40%, rgba(10, 10, 15, 0.8) 100%);
+            z-index: 50;
+        }
+
+        .scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 0, 0, 0.03) 2px,
+                rgba(0, 0, 0, 0.03) 4px
+            );
+            z-index: 51;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        .rendering {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff2a6d;
+            font-size: 10px;
+            letter-spacing: 3px;
+            opacity: 0;
+            animation: pulse 1s infinite;
+            z-index: 100;
+            text-shadow: 0 0 20px #ff2a6d;
+            pointer-events: none;
+        }
+
+        .rendering.active {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="fractal"></canvas>
+
+    <div class="vignette"></div>
+    <div class="scanlines"></div>
+
+    <div class="zoom-indicator"></div>
+
+    <div class="ui title">FRACTAL // ABYSS</div>
+
+    <div class="ui coords" id="coords">
+        RE: 0.000000<br>
+        IM: 0.000000<br>
+        ZOOM: 1.00x<br>
+        DEPTH: 0
+    </div>
+
+    <div class="ui controls">
+        <button class="btn active" id="mandelbrot">MANDELBROT</button>
+        <button class="btn" id="julia">JULIA</button>
+        <button class="btn" id="reset">RESET</button>
+        <button class="btn" id="palette">PALETTE</button>
+    </div>
+
+    <div class="ui hint">
+        CLICK TO ZOOM IN<br>
+        RIGHT-CLICK TO ZOOM OUT<br>
+        SCROLL TO ADJUST DEPTH
+    </div>
+
+    <div class="rendering" id="rendering">RENDERING...</div>
+
+    <script>
+        const canvas = document.getElementById('fractal');
+        const ctx = canvas.getContext('2d');
+        const coordsEl = document.getElementById('coords');
+        const renderingEl = document.getElementById('rendering');
+
+        let width, height;
+        let imageData, pixels;
+
+        // Fractal state
+        let centerX = -0.5;
+        let centerY = 0;
+        let zoom = 1;
+        let maxIterations = 200;
+        let isJulia = false;
+        let juliaC = { re: -0.7, im: 0.27015 };
+        let paletteIndex = 0;
+        let zoomDepth = 0;
+
+        // Animation state
+        let targetCenterX = centerX;
+        let targetCenterY = centerY;
+        let targetZoom = zoom;
+        let isAnimating = false;
+        let needsRender = true;
+
+        // Color palettes - cyberpunk themed
+        const palettes = [
+            // Neon Pink / Cyan
+            (t) => {
+                const r = Math.sin(t * 3.14159 * 2) * 0.5 + 0.5;
+                const g = Math.sin(t * 3.14159 * 2 + 2.094) * 0.3 + 0.1;
+                const b = Math.sin(t * 3.14159 * 2 + 4.188) * 0.5 + 0.5;
+                return [
+                    Math.floor(255 * (r * 0.8 + 0.2)),
+                    Math.floor(255 * g * 0.85),
+                    Math.floor(255 * (b * 0.9 + 0.1))
+                ];
+            },
+            // Deep Purple / Electric Blue
+            (t) => {
+                const phase = t * Math.PI * 2;
+                return [
+                    Math.floor(128 + 127 * Math.sin(phase + 0)),
+                    Math.floor(50 + 50 * Math.sin(phase + 2)),
+                    Math.floor(180 + 75 * Math.sin(phase + 4))
+                ];
+            },
+            // Hot Plasma
+            (t) => {
+                return [
+                    Math.floor(255 * Math.min(1, t * 3)),
+                    Math.floor(255 * Math.max(0, Math.min(1, t * 3 - 1))),
+                    Math.floor(255 * Math.max(0, t * 3 - 2))
+                ];
+            },
+            // Toxic Neon
+            (t) => {
+                const cycle = t * 6;
+                const r = Math.abs(Math.sin(cycle * 0.5)) * 255;
+                const g = Math.abs(Math.cos(cycle * 0.7 + 1)) * 200 + 55;
+                const b = Math.abs(Math.sin(cycle * 0.3 + 2)) * 255;
+                return [Math.floor(r), Math.floor(g * 0.3), Math.floor(b)];
+            },
+            // Void Gradient
+            (t) => {
+                const x = t * 4;
+                return [
+                    Math.floor(255 * (0.5 + 0.5 * Math.cos(6.28 * (x + 0.0)))),
+                    Math.floor(255 * (0.5 + 0.5 * Math.cos(6.28 * (x + 0.4)))),
+                    Math.floor(255 * (0.5 + 0.5 * Math.cos(6.28 * (x + 0.7))))
+                ];
+            }
+        ];
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            imageData = ctx.createImageData(width, height);
+            pixels = imageData.data;
+            needsRender = true;
+        }
+
+        function getColor(iterations, maxIter) {
+            if (iterations === maxIter) {
+                return [10, 10, 15]; // Deep black for set interior
+            }
+
+            // Smooth coloring using escape time algorithm
+            const smoothed = iterations + 1 - Math.log2(Math.log2(iterations + 1));
+            const t = (smoothed % 50) / 50;
+
+            return palettes[paletteIndex](t);
+        }
+
+        function mandelbrot(cRe, cIm) {
+            let zRe = 0, zIm = 0;
+            let zRe2 = 0, zIm2 = 0;
+            let iter = 0;
+
+            while (zRe2 + zIm2 <= 4 && iter < maxIterations) {
+                zIm = 2 * zRe * zIm + cIm;
+                zRe = zRe2 - zIm2 + cRe;
+                zRe2 = zRe * zRe;
+                zIm2 = zIm * zIm;
+                iter++;
+            }
+
+            return iter;
+        }
+
+        function juliaSet(zRe, zIm) {
+            let zRe2 = zRe * zRe;
+            let zIm2 = zIm * zIm;
+            let iter = 0;
+
+            while (zRe2 + zIm2 <= 4 && iter < maxIterations) {
+                zIm = 2 * zRe * zIm + juliaC.im;
+                zRe = zRe2 - zIm2 + juliaC.re;
+                zRe2 = zRe * zRe;
+                zIm2 = zIm * zIm;
+                iter++;
+            }
+
+            return iter;
+        }
+
+        function render() {
+            const aspectRatio = width / height;
+            const rangeY = 2.5 / zoom;
+            const rangeX = rangeY * aspectRatio;
+
+            const minX = centerX - rangeX / 2;
+            const maxY = centerY + rangeY / 2;
+
+            const dx = rangeX / width;
+            const dy = rangeY / height;
+
+            let pixelIndex = 0;
+
+            for (let py = 0; py < height; py++) {
+                const cIm = maxY - py * dy;
+
+                for (let px = 0; px < width; px++) {
+                    const cRe = minX + px * dx;
+
+                    const iterations = isJulia ? juliaSet(cRe, cIm) : mandelbrot(cRe, cIm);
+                    const [r, g, b] = getColor(iterations, maxIterations);
+
+                    pixels[pixelIndex] = r;
+                    pixels[pixelIndex + 1] = g;
+                    pixels[pixelIndex + 2] = b;
+                    pixels[pixelIndex + 3] = 255;
+
+                    pixelIndex += 4;
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function updateCoords() {
+            coordsEl.innerHTML = `
+                RE: ${centerX.toFixed(12)}<br>
+                IM: ${centerY.toFixed(12)}<br>
+                ZOOM: ${zoom.toExponential(2)}x<br>
+                DEPTH: ${zoomDepth}
+            `;
+        }
+
+        function animate() {
+            if (isAnimating) {
+                const easing = 0.08;
+
+                const dx = targetCenterX - centerX;
+                const dy = targetCenterY - centerY;
+                const dz = targetZoom - zoom;
+
+                centerX += dx * easing;
+                centerY += dy * easing;
+                zoom += dz * easing;
+
+                // Dynamic iteration count based on zoom
+                maxIterations = Math.min(2000, 200 + Math.floor(Math.log2(zoom) * 50));
+
+                if (Math.abs(dx) < 1e-14 && Math.abs(dy) < 1e-14 && Math.abs(dz / zoom) < 0.001) {
+                    centerX = targetCenterX;
+                    centerY = targetCenterY;
+                    zoom = targetZoom;
+                    isAnimating = false;
+                    renderingEl.classList.remove('active');
+                }
+
+                needsRender = true;
+                updateCoords();
+            }
+
+            if (needsRender) {
+                render();
+                needsRender = false;
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        function screenToComplex(screenX, screenY) {
+            const aspectRatio = width / height;
+            const rangeY = 2.5 / zoom;
+            const rangeX = rangeY * aspectRatio;
+
+            const re = centerX + (screenX / width - 0.5) * rangeX;
+            const im = centerY - (screenY / height - 0.5) * rangeY;
+
+            return { re, im };
+        }
+
+        function zoomIn(screenX, screenY) {
+            const { re, im } = screenToComplex(screenX, screenY);
+
+            targetCenterX = re;
+            targetCenterY = im;
+            targetZoom = zoom * 2.5;
+            zoomDepth++;
+
+            isAnimating = true;
+            renderingEl.classList.add('active');
+        }
+
+        function zoomOut() {
+            targetZoom = Math.max(1, zoom / 2.5);
+            zoomDepth = Math.max(0, zoomDepth - 1);
+
+            isAnimating = true;
+            renderingEl.classList.add('active');
+        }
+
+        function reset() {
+            if (isJulia) {
+                targetCenterX = 0;
+                targetCenterY = 0;
+            } else {
+                targetCenterX = -0.5;
+                targetCenterY = 0;
+            }
+            targetZoom = 1;
+            zoomDepth = 0;
+            maxIterations = 200;
+
+            isAnimating = true;
+            renderingEl.classList.add('active');
+        }
+
+        // Event listeners
+        canvas.addEventListener('click', (e) => {
+            zoomIn(e.clientX, e.clientY);
+        });
+
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            zoomOut();
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            maxIterations = Math.max(50, Math.min(3000, maxIterations - e.deltaY));
+            needsRender = true;
+            updateCoords();
+        });
+
+        // Touch support for mobile
+        let lastTouchDistance = 0;
+        canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                const touch = e.touches[0];
+                zoomIn(touch.clientX, touch.clientY);
+            } else if (e.touches.length === 2) {
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                lastTouchDistance = Math.sqrt(dx * dx + dy * dy);
+            }
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2) {
+                e.preventDefault();
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (lastTouchDistance > 0) {
+                    const scale = distance / lastTouchDistance;
+                    targetZoom *= scale;
+                    isAnimating = true;
+                }
+
+                lastTouchDistance = distance;
+            }
+        });
+
+        // Button handlers
+        document.getElementById('mandelbrot').addEventListener('click', () => {
+            isJulia = false;
+            document.getElementById('mandelbrot').classList.add('active');
+            document.getElementById('julia').classList.remove('active');
+            reset();
+        });
+
+        document.getElementById('julia').addEventListener('click', () => {
+            isJulia = true;
+            document.getElementById('julia').classList.add('active');
+            document.getElementById('mandelbrot').classList.remove('active');
+            reset();
+        });
+
+        document.getElementById('reset').addEventListener('click', reset);
+
+        document.getElementById('palette').addEventListener('click', () => {
+            paletteIndex = (paletteIndex + 1) % palettes.length;
+            needsRender = true;
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            switch(e.key) {
+                case 'j':
+                    document.getElementById('julia').click();
+                    break;
+                case 'm':
+                    document.getElementById('mandelbrot').click();
+                    break;
+                case 'r':
+                    reset();
+                    break;
+                case 'p':
+                    document.getElementById('palette').click();
+                    break;
+                case '-':
+                    zoomOut();
+                    break;
+            }
+        });
+
+        // Initialize
+        window.addEventListener('resize', resize);
+        resize();
+        updateCoords();
+        animate();
+
+        // Auto-update Julia constant for interesting patterns
+        if (isJulia) {
+            let juliaAngle = 0;
+            setInterval(() => {
+                juliaAngle += 0.01;
+                juliaC.re = -0.7 + 0.1 * Math.cos(juliaAngle);
+                juliaC.im = 0.27015 + 0.1 * Math.sin(juliaAngle);
+                if (!isAnimating) needsRender = true;
+            }, 100);
+        }
+    </script>
+</body>
+</html>

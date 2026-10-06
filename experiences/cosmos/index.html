@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cosmos Simulation | Pocket Universe</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            cursor: crosshair;
+        }
+
+        #cosmos {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        #ui {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            color: #05d9e8;
+            font-size: 14px;
+            text-shadow: 0 0 10px #05d9e8;
+            pointer-events: none;
+        }
+
+        #ui h1 {
+            font-size: 24px;
+            font-weight: 300;
+            letter-spacing: 4px;
+            margin-bottom: 10px;
+            color: #ff2a6d;
+            text-shadow: 0 0 20px #ff2a6d, 0 0 40px #ff2a6d;
+        }
+
+        #stats {
+            opacity: 0.8;
+            line-height: 1.6;
+        }
+
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            color: #d300c5;
+            font-size: 12px;
+            text-shadow: 0 0 10px #d300c5;
+            opacity: 0.7;
+            line-height: 1.8;
+        }
+
+        #mass-indicator {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100;
+            color: #05d9e8;
+            font-size: 14px;
+            text-shadow: 0 0 10px #05d9e8;
+        }
+
+        .mass-bar {
+            width: 200px;
+            height: 8px;
+            background: rgba(5, 217, 232, 0.2);
+            border: 1px solid #05d9e8;
+            border-radius: 4px;
+            margin-top: 8px;
+            overflow: hidden;
+            box-shadow: 0 0 10px rgba(5, 217, 232, 0.3);
+        }
+
+        .mass-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #05d9e8, #d300c5, #ff2a6d);
+            width: 0%;
+            transition: width 0.1s;
+            box-shadow: 0 0 15px #05d9e8;
+        }
+
+        #spawn-preview {
+            position: fixed;
+            pointer-events: none;
+            z-index: 50;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 42, 109, 0.5);
+            box-shadow: 0 0 20px rgba(255, 42, 109, 0.5);
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="cosmos"></canvas>
+
+    <div id="ui">
+        <h1>COSMOS</h1>
+        <div id="stats">
+            <div>Bodies: <span id="body-count">0</span></div>
+            <div>Zoom: <span id="zoom-level">1.00</span>x</div>
+            <div>FPS: <span id="fps">60</span></div>
+        </div>
+    </div>
+
+    <div id="controls">
+        <div>Click & Hold - Spawn body (hold longer = more mass)</div>
+        <div>Drag - Set initial velocity</div>
+        <div>Scroll - Zoom in/out</div>
+        <div>Middle Click & Drag - Pan view</div>
+        <div>Space - Pause/Resume</div>
+        <div>C - Clear all bodies</div>
+        <div>R - Reset view</div>
+        <div>T - Toggle trails</div>
+    </div>
+
+    <div id="mass-indicator">
+        <div>Mass Power</div>
+        <div class="mass-bar">
+            <div class="mass-fill" id="mass-fill"></div>
+        </div>
+    </div>
+
+    <div id="spawn-preview"></div>
+
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('cosmos');
+        const ctx = canvas.getContext('2d');
+
+        // UI elements
+        const bodyCountEl = document.getElementById('body-count');
+        const zoomLevelEl = document.getElementById('zoom-level');
+        const fpsEl = document.getElementById('fps');
+        const massFillEl = document.getElementById('mass-fill');
+        const spawnPreview = document.getElementById('spawn-preview');
+
+        // Resize canvas
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        // Simulation constants
+        const G = 0.5; // Gravitational constant
+        const SOFTENING = 10; // Prevents division by zero
+        const MAX_TRAIL_LENGTH = 100;
+        const MERGE_THRESHOLD = 0.8;
+
+        // Neon colors
+        const COLORS = ['#ff2a6d', '#05d9e8', '#d300c5', '#ff6b35', '#7b2cbf', '#00f5d4', '#fee440'];
+
+        // View state
+        let camera = {
+            x: 0,
+            y: 0,
+            zoom: 1,
+            targetZoom: 1
+        };
+
+        // Simulation state
+        let bodies = [];
+        let paused = false;
+        let showTrails = true;
+        let spawning = null;
+        let panning = false;
+        let panStart = { x: 0, y: 0 };
+
+        // Nebula background
+        let nebulaCanvas;
+        let nebulaCtx;
+
+        function createNebula() {
+            nebulaCanvas = document.createElement('canvas');
+            nebulaCanvas.width = canvas.width;
+            nebulaCanvas.height = canvas.height;
+            nebulaCtx = nebulaCanvas.getContext('2d');
+
+            // Deep space gradient
+            const gradient = nebulaCtx.createRadialGradient(
+                canvas.width / 2, canvas.height / 2, 0,
+                canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height)
+            );
+            gradient.addColorStop(0, '#0a0015');
+            gradient.addColorStop(0.5, '#050010');
+            gradient.addColorStop(1, '#000005');
+            nebulaCtx.fillStyle = gradient;
+            nebulaCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Nebula clouds
+            for (let i = 0; i < 5; i++) {
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height;
+                const radius = 200 + Math.random() * 400;
+                const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+
+                const nebGradient = nebulaCtx.createRadialGradient(x, y, 0, x, y, radius);
+                nebGradient.addColorStop(0, color + '15');
+                nebGradient.addColorStop(0.3, color + '08');
+                nebGradient.addColorStop(1, 'transparent');
+
+                nebulaCtx.fillStyle = nebGradient;
+                nebulaCtx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
+            // Background stars
+            for (let i = 0; i < 500; i++) {
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height;
+                const size = Math.random() * 1.5;
+                const alpha = 0.3 + Math.random() * 0.7;
+
+                nebulaCtx.beginPath();
+                nebulaCtx.arc(x, y, size, 0, Math.PI * 2);
+                nebulaCtx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                nebulaCtx.fill();
+            }
+        }
+        createNebula();
+        window.addEventListener('resize', createNebula);
+
+        // Body class
+        class CelestialBody {
+            constructor(x, y, vx, vy, mass) {
+                this.x = x;
+                this.y = y;
+                this.vx = vx;
+                this.vy = vy;
+                this.mass = mass;
+                this.radius = Math.pow(mass, 0.4) * 2;
+                this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+                this.trail = [];
+                this.alive = true;
+                this.age = 0;
+
+                // Determine type based on mass
+                if (mass > 500) {
+                    this.type = 'star';
+                } else if (mass > 100) {
+                    this.type = 'giant';
+                } else {
+                    this.type = 'planet';
+                }
+            }
+
+            update(dt) {
+                if (!this.alive) return;
+
+                this.age += dt;
+
+                // Update position
+                this.x += this.vx * dt;
+                this.y += this.vy * dt;
+
+                // Update trail
+                if (showTrails && this.age > 0.5) {
+                    this.trail.push({ x: this.x, y: this.y, age: 0 });
+                    if (this.trail.length > MAX_TRAIL_LENGTH) {
+                        this.trail.shift();
+                    }
+                }
+
+                // Age trail points
+                for (let point of this.trail) {
+                    point.age += dt * 2;
+                }
+            }
+
+            draw(ctx, camera) {
+                if (!this.alive) return;
+
+                const screenX = (this.x - camera.x) * camera.zoom + canvas.width / 2;
+                const screenY = (this.y - camera.y) * camera.zoom + canvas.height / 2;
+                const screenRadius = this.radius * camera.zoom;
+
+                // Skip if off screen
+                if (screenX < -100 || screenX > canvas.width + 100 ||
+                    screenY < -100 || screenY > canvas.height + 100) {
+                    return;
+                }
+
+                // Draw trail
+                if (showTrails && this.trail.length > 1) {
+                    ctx.beginPath();
+                    const startPoint = this.trail[0];
+                    const startX = (startPoint.x - camera.x) * camera.zoom + canvas.width / 2;
+                    const startY = (startPoint.y - camera.y) * camera.zoom + canvas.height / 2;
+                    ctx.moveTo(startX, startY);
+
+                    for (let i = 1; i < this.trail.length; i++) {
+                        const point = this.trail[i];
+                        const px = (point.x - camera.x) * camera.zoom + canvas.width / 2;
+                        const py = (point.y - camera.y) * camera.zoom + canvas.height / 2;
+                        ctx.lineTo(px, py);
+                    }
+
+                    ctx.strokeStyle = this.color + '40';
+                    ctx.lineWidth = Math.max(1, screenRadius * 0.3);
+                    ctx.lineCap = 'round';
+                    ctx.stroke();
+                }
+
+                // Outer glow
+                const glowRadius = screenRadius * (this.type === 'star' ? 4 : 2);
+                const glow = ctx.createRadialGradient(
+                    screenX, screenY, screenRadius * 0.5,
+                    screenX, screenY, glowRadius
+                );
+                glow.addColorStop(0, this.color + '60');
+                glow.addColorStop(0.5, this.color + '20');
+                glow.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, glowRadius, 0, Math.PI * 2);
+                ctx.fillStyle = glow;
+                ctx.fill();
+
+                // Body gradient
+                const bodyGradient = ctx.createRadialGradient(
+                    screenX - screenRadius * 0.3,
+                    screenY - screenRadius * 0.3,
+                    0,
+                    screenX, screenY, screenRadius
+                );
+
+                if (this.type === 'star') {
+                    bodyGradient.addColorStop(0, '#ffffff');
+                    bodyGradient.addColorStop(0.2, this.color);
+                    bodyGradient.addColorStop(1, this.color + '80');
+                } else {
+                    bodyGradient.addColorStop(0, '#ffffff80');
+                    bodyGradient.addColorStop(0.3, this.color);
+                    bodyGradient.addColorStop(1, this.color + '60');
+                }
+
+                // Draw body
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, Math.max(2, screenRadius), 0, Math.PI * 2);
+                ctx.fillStyle = bodyGradient;
+                ctx.fill();
+
+                // Corona for stars
+                if (this.type === 'star') {
+                    const coronaSize = screenRadius * 1.5;
+                    const spikes = 8;
+                    ctx.save();
+                    ctx.globalAlpha = 0.3 + Math.sin(this.age * 5) * 0.1;
+                    ctx.strokeStyle = this.color;
+                    ctx.lineWidth = 2;
+
+                    for (let i = 0; i < spikes; i++) {
+                        const angle = (i / spikes) * Math.PI * 2 + this.age * 0.5;
+                        const spikeLength = coronaSize * (0.8 + Math.sin(this.age * 3 + i) * 0.2);
+
+                        ctx.beginPath();
+                        ctx.moveTo(screenX, screenY);
+                        ctx.lineTo(
+                            screenX + Math.cos(angle) * spikeLength,
+                            screenY + Math.sin(angle) * spikeLength
+                        );
+                        ctx.stroke();
+                    }
+                    ctx.restore();
+                }
+            }
+        }
+
+        // Physics
+        function applyGravity(dt) {
+            for (let i = 0; i < bodies.length; i++) {
+                if (!bodies[i].alive) continue;
+
+                for (let j = i + 1; j < bodies.length; j++) {
+                    if (!bodies[j].alive) continue;
+
+                    const a = bodies[i];
+                    const b = bodies[j];
+
+                    const dx = b.x - a.x;
+                    const dy = b.y - a.y;
+                    const distSq = dx * dx + dy * dy + SOFTENING * SOFTENING;
+                    const dist = Math.sqrt(distSq);
+
+                    // Check for collision/merge
+                    if (dist < (a.radius + b.radius) * MERGE_THRESHOLD) {
+                        mergeBodies(a, b);
+                        continue;
+                    }
+
+                    // Gravitational force
+                    const force = G * a.mass * b.mass / distSq;
+                    const fx = force * dx / dist;
+                    const fy = force * dy / dist;
+
+                    // Apply acceleration
+                    a.vx += fx / a.mass * dt;
+                    a.vy += fy / a.mass * dt;
+                    b.vx -= fx / b.mass * dt;
+                    b.vy -= fy / b.mass * dt;
+                }
+            }
+        }
+
+        function mergeBodies(a, b) {
+            // Conservation of momentum
+            const totalMass = a.mass + b.mass;
+            const newVx = (a.mass * a.vx + b.mass * b.vx) / totalMass;
+            const newVy = (a.mass * a.vy + b.mass * b.vy) / totalMass;
+
+            // Larger body absorbs smaller
+            const [larger, smaller] = a.mass > b.mass ? [a, b] : [b, a];
+
+            larger.mass = totalMass;
+            larger.vx = newVx;
+            larger.vy = newVy;
+            larger.radius = Math.pow(totalMass, 0.4) * 2;
+
+            // Update type
+            if (totalMass > 500) {
+                larger.type = 'star';
+            } else if (totalMass > 100) {
+                larger.type = 'giant';
+            }
+
+            // Create collision effect
+            createCollisionEffect(larger.x, larger.y, larger.color);
+
+            smaller.alive = false;
+        }
+
+        // Collision particles
+        let particles = [];
+
+        function createCollisionEffect(x, y, color) {
+            for (let i = 0; i < 20; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 50 + Math.random() * 100;
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    life: 1,
+                    color: color
+                });
+            }
+        }
+
+        function updateParticles(dt) {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+                p.life -= dt * 2;
+
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+
+        function drawParticles(ctx, camera) {
+            for (const p of particles) {
+                const screenX = (p.x - camera.x) * camera.zoom + canvas.width / 2;
+                const screenY = (p.y - camera.y) * camera.zoom + canvas.height / 2;
+
+                ctx.beginPath();
+                ctx.arc(screenX, screenY, 3 * p.life * camera.zoom, 0, Math.PI * 2);
+                ctx.fillStyle = p.color + Math.floor(p.life * 255).toString(16).padStart(2, '0');
+                ctx.fill();
+            }
+        }
+
+        // Spawning
+        function screenToWorld(screenX, screenY) {
+            return {
+                x: (screenX - canvas.width / 2) / camera.zoom + camera.x,
+                y: (screenY - canvas.height / 2) / camera.zoom + camera.y
+            };
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 1) {
+                // Middle mouse - pan
+                panning = true;
+                panStart = { x: e.clientX, y: e.clientY };
+                canvas.style.cursor = 'grabbing';
+            } else if (e.button === 0) {
+                // Left mouse - spawn
+                const worldPos = screenToWorld(e.clientX, e.clientY);
+                spawning = {
+                    startX: worldPos.x,
+                    startY: worldPos.y,
+                    screenX: e.clientX,
+                    screenY: e.clientY,
+                    startTime: performance.now(),
+                    currentX: worldPos.x,
+                    currentY: worldPos.y
+                };
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (panning) {
+                const dx = e.clientX - panStart.x;
+                const dy = e.clientY - panStart.y;
+                camera.x -= dx / camera.zoom;
+                camera.y -= dy / camera.zoom;
+                panStart = { x: e.clientX, y: e.clientY };
+            } else if (spawning) {
+                const worldPos = screenToWorld(e.clientX, e.clientY);
+                spawning.currentX = worldPos.x;
+                spawning.currentY = worldPos.y;
+
+                // Update preview
+                const mass = Math.min(1000, 10 + (performance.now() - spawning.startTime) / 5);
+                const radius = Math.pow(mass, 0.4) * 2 * camera.zoom;
+                spawnPreview.style.display = 'block';
+                spawnPreview.style.left = (spawning.screenX - radius) + 'px';
+                spawnPreview.style.top = (spawning.screenY - radius) + 'px';
+                spawnPreview.style.width = (radius * 2) + 'px';
+                spawnPreview.style.height = (radius * 2) + 'px';
+
+                massFillEl.style.width = (mass / 10) + '%';
+            }
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            if (e.button === 1) {
+                panning = false;
+                canvas.style.cursor = 'crosshair';
+            } else if (e.button === 0 && spawning) {
+                const holdTime = performance.now() - spawning.startTime;
+                const mass = Math.min(1000, 10 + holdTime / 5);
+
+                // Calculate velocity from drag
+                const dx = spawning.currentX - spawning.startX;
+                const dy = spawning.currentY - spawning.startY;
+                const vx = dx * 0.5;
+                const vy = dy * 0.5;
+
+                bodies.push(new CelestialBody(
+                    spawning.startX,
+                    spawning.startY,
+                    vx,
+                    vy,
+                    mass
+                ));
+
+                spawning = null;
+                spawnPreview.style.display = 'none';
+                massFillEl.style.width = '0%';
+            }
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+            camera.targetZoom = Math.max(0.1, Math.min(5, camera.targetZoom * zoomFactor));
+        });
+
+        // Keyboard controls
+        document.addEventListener('keydown', (e) => {
+            switch (e.key.toLowerCase()) {
+                case ' ':
+                    paused = !paused;
+                    break;
+                case 'c':
+                    bodies = [];
+                    particles = [];
+                    break;
+                case 'r':
+                    camera.x = 0;
+                    camera.y = 0;
+                    camera.targetZoom = 1;
+                    break;
+                case 't':
+                    showTrails = !showTrails;
+                    if (!showTrails) {
+                        bodies.forEach(b => b.trail = []);
+                    }
+                    break;
+            }
+        });
+
+        // Prevent context menu
+        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        // FPS tracking
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+
+        // Main loop
+        function animate(currentTime) {
+            requestAnimationFrame(animate);
+
+            // Calculate delta time
+            const dt = Math.min((currentTime - lastTime) / 1000, 0.05);
+            lastTime = currentTime;
+
+            // FPS counter
+            frameCount++;
+            if (frameCount >= 30) {
+                fps = Math.round(1000 / (dt * 1000));
+                frameCount = 0;
+            }
+
+            // Smooth zoom
+            camera.zoom += (camera.targetZoom - camera.zoom) * 0.1;
+
+            // Update physics
+            if (!paused) {
+                applyGravity(dt);
+                bodies.forEach(b => b.update(dt));
+                updateParticles(dt);
+            }
+
+            // Remove dead bodies
+            bodies = bodies.filter(b => b.alive);
+
+            // Draw
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw nebula background
+            ctx.drawImage(nebulaCanvas, 0, 0);
+
+            // Draw spawn velocity line
+            if (spawning) {
+                const startScreen = {
+                    x: (spawning.startX - camera.x) * camera.zoom + canvas.width / 2,
+                    y: (spawning.startY - camera.y) * camera.zoom + canvas.height / 2
+                };
+                const currentScreen = {
+                    x: (spawning.currentX - camera.x) * camera.zoom + canvas.width / 2,
+                    y: (spawning.currentY - camera.y) * camera.zoom + canvas.height / 2
+                };
+
+                ctx.beginPath();
+                ctx.moveTo(startScreen.x, startScreen.y);
+                ctx.lineTo(currentScreen.x, currentScreen.y);
+                ctx.strokeStyle = '#ff2a6d80';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Velocity arrow
+                const angle = Math.atan2(currentScreen.y - startScreen.y, currentScreen.x - startScreen.x);
+                const arrowSize = 10;
+                ctx.beginPath();
+                ctx.moveTo(currentScreen.x, currentScreen.y);
+                ctx.lineTo(
+                    currentScreen.x - Math.cos(angle - 0.3) * arrowSize,
+                    currentScreen.y - Math.sin(angle - 0.3) * arrowSize
+                );
+                ctx.moveTo(currentScreen.x, currentScreen.y);
+                ctx.lineTo(
+                    currentScreen.x - Math.cos(angle + 0.3) * arrowSize,
+                    currentScreen.y - Math.sin(angle + 0.3) * arrowSize
+                );
+                ctx.stroke();
+            }
+
+            // Draw bodies
+            bodies.forEach(b => b.draw(ctx, camera));
+
+            // Draw particles
+            drawParticles(ctx, camera);
+
+            // Update UI
+            bodyCountEl.textContent = bodies.length;
+            zoomLevelEl.textContent = camera.zoom.toFixed(2);
+            fpsEl.textContent = fps;
+        }
+
+        // Create initial bodies
+        function createInitialSystem() {
+            // Central star
+            bodies.push(new CelestialBody(0, 0, 0, 0, 800));
+
+            // Orbiting planets
+            for (let i = 0; i < 5; i++) {
+                const distance = 150 + i * 100;
+                const angle = Math.random() * Math.PI * 2;
+                const x = Math.cos(angle) * distance;
+                const y = Math.sin(angle) * distance;
+
+                // Orbital velocity
+                const orbitalSpeed = Math.sqrt(G * 800 / distance);
+                const vx = -Math.sin(angle) * orbitalSpeed;
+                const vy = Math.cos(angle) * orbitalSpeed;
+
+                bodies.push(new CelestialBody(x, y, vx, vy, 20 + Math.random() * 40));
+            }
+        }
+        createInitialSystem();
+
+        // Start animation
+        animate(performance.now());
+    </script>
+</body>
+</html>

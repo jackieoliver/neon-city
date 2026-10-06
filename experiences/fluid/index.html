@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Neon Fluid Dynamics</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #0a0a0f;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        #canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.4);
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(5, 217, 232, 0.5);
+        }
+
+        #fps {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            color: rgba(5, 217, 232, 0.6);
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="info">Touch or drag to create neon flows</div>
+    <div id="fps">60 FPS</div>
+
+    <script>
+        // Neon Fluid Dynamics Simulation
+        // Using a simplified stable fluid solver based on Jos Stam's method
+
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const fpsDisplay = document.getElementById('fps');
+
+        // Embedded mode detection
+        const isEmbedded = window.self !== window.top;
+        let isPaused = false;
+        let animationId = null;
+
+        // Listen for pause/resume from parent
+        window.addEventListener('message', (e) => {
+            if (e.data === 'neon-pause') {
+                isPaused = true;
+            } else if (e.data === 'neon-resume') {
+                isPaused = false;
+                if (!animationId) animate();
+            }
+        });
+
+        // Visibility API
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) isPaused = true;
+        });
+
+        // Simulation parameters - REDUCED for embedded
+        const RESOLUTION = isEmbedded ? 64 : 128;
+        const ITERATIONS = isEmbedded ? 2 : 4;
+        const DIFFUSION = 0.0001;
+        const VISCOSITY = 0.00001;
+        const DT = 0.1;
+
+        // Neon colors
+        const NEON_COLORS = [
+            { r: 255, g: 42, b: 109 },   // #ff2a6d - Hot pink
+            { r: 5, g: 217, b: 232 },    // #05d9e8 - Cyan
+            { r: 211, g: 0, b: 197 }     // #d300c5 - Magenta
+        ];
+
+        let width, height, cellSize;
+        let N, size;
+
+        // Fluid arrays
+        let density, densityPrev;
+        let velocityX, velocityY;
+        let velocityXPrev, velocityYPrev;
+        let colorR, colorG, colorB;
+        let colorRPrev, colorGPrev, colorBPrev;
+
+        // Interaction
+        let mouseX = 0, mouseY = 0;
+        let prevMouseX = 0, prevMouseY = 0;
+        let isMouseDown = false;
+        let colorIndex = 0;
+
+        // Image data for rendering
+        let imageData, pixels;
+
+        // FPS tracking
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+
+        function init() {
+            resize();
+            window.addEventListener('resize', resize);
+
+            // Mouse events
+            canvas.addEventListener('mousedown', onMouseDown);
+            canvas.addEventListener('mousemove', onMouseMove);
+            canvas.addEventListener('mouseup', onMouseUp);
+            canvas.addEventListener('mouseleave', onMouseUp);
+
+            // Touch events
+            canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+            canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+            canvas.addEventListener('touchend', onTouchEnd);
+
+            animate();
+        }
+
+        function resize() {
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            width = window.innerWidth;
+            height = window.innerHeight;
+
+            canvas.width = width * dpr;
+            canvas.height = height * dpr;
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
+            ctx.scale(dpr, dpr);
+
+            // Calculate grid
+            N = RESOLUTION;
+            size = (N + 2) * (N + 2);
+            cellSize = Math.max(width, height) / N;
+
+            // Initialize arrays
+            density = new Float32Array(size);
+            densityPrev = new Float32Array(size);
+            velocityX = new Float32Array(size);
+            velocityY = new Float32Array(size);
+            velocityXPrev = new Float32Array(size);
+            velocityYPrev = new Float32Array(size);
+            colorR = new Float32Array(size);
+            colorG = new Float32Array(size);
+            colorB = new Float32Array(size);
+            colorRPrev = new Float32Array(size);
+            colorGPrev = new Float32Array(size);
+            colorBPrev = new Float32Array(size);
+
+            // Create image data for pixel manipulation
+            imageData = ctx.createImageData(width, height);
+            pixels = imageData.data;
+        }
+
+        function IX(i, j) {
+            return i + (N + 2) * j;
+        }
+
+        function addSource(x, s, dt) {
+            for (let i = 0; i < size; i++) {
+                x[i] += dt * s[i];
+            }
+        }
+
+        function setBoundary(b, x) {
+            for (let i = 1; i <= N; i++) {
+                x[IX(0, i)] = b === 1 ? -x[IX(1, i)] : x[IX(1, i)];
+                x[IX(N + 1, i)] = b === 1 ? -x[IX(N, i)] : x[IX(N, i)];
+                x[IX(i, 0)] = b === 2 ? -x[IX(i, 1)] : x[IX(i, 1)];
+                x[IX(i, N + 1)] = b === 2 ? -x[IX(i, N)] : x[IX(i, N)];
+            }
+            x[IX(0, 0)] = 0.5 * (x[IX(1, 0)] + x[IX(0, 1)]);
+            x[IX(0, N + 1)] = 0.5 * (x[IX(1, N + 1)] + x[IX(0, N)]);
+            x[IX(N + 1, 0)] = 0.5 * (x[IX(N, 0)] + x[IX(N + 1, 1)]);
+            x[IX(N + 1, N + 1)] = 0.5 * (x[IX(N, N + 1)] + x[IX(N + 1, N)]);
+        }
+
+        function linearSolve(b, x, x0, a, c) {
+            const cRecip = 1.0 / c;
+            for (let k = 0; k < ITERATIONS; k++) {
+                for (let j = 1; j <= N; j++) {
+                    for (let i = 1; i <= N; i++) {
+                        x[IX(i, j)] = (x0[IX(i, j)] + a * (
+                            x[IX(i + 1, j)] + x[IX(i - 1, j)] +
+                            x[IX(i, j + 1)] + x[IX(i, j - 1)]
+                        )) * cRecip;
+                    }
+                }
+                setBoundary(b, x);
+            }
+        }
+
+        function diffuse(b, x, x0, diff, dt) {
+            const a = dt * diff * N * N;
+            linearSolve(b, x, x0, a, 1 + 4 * a);
+        }
+
+        function advect(b, d, d0, velocX, velocY, dt) {
+            const dtx = dt * N;
+            const dty = dt * N;
+
+            for (let j = 1; j <= N; j++) {
+                for (let i = 1; i <= N; i++) {
+                    let x = i - dtx * velocX[IX(i, j)];
+                    let y = j - dty * velocY[IX(i, j)];
+
+                    if (x < 0.5) x = 0.5;
+                    if (x > N + 0.5) x = N + 0.5;
+                    const i0 = Math.floor(x);
+                    const i1 = i0 + 1;
+
+                    if (y < 0.5) y = 0.5;
+                    if (y > N + 0.5) y = N + 0.5;
+                    const j0 = Math.floor(y);
+                    const j1 = j0 + 1;
+
+                    const s1 = x - i0;
+                    const s0 = 1 - s1;
+                    const t1 = y - j0;
+                    const t0 = 1 - t1;
+
+                    d[IX(i, j)] =
+                        s0 * (t0 * d0[IX(i0, j0)] + t1 * d0[IX(i0, j1)]) +
+                        s1 * (t0 * d0[IX(i1, j0)] + t1 * d0[IX(i1, j1)]);
+                }
+            }
+            setBoundary(b, d);
+        }
+
+        function project(velocX, velocY, p, div) {
+            const h = 1.0 / N;
+
+            for (let j = 1; j <= N; j++) {
+                for (let i = 1; i <= N; i++) {
+                    div[IX(i, j)] = -0.5 * h * (
+                        velocX[IX(i + 1, j)] - velocX[IX(i - 1, j)] +
+                        velocY[IX(i, j + 1)] - velocY[IX(i, j - 1)]
+                    );
+                    p[IX(i, j)] = 0;
+                }
+            }
+            setBoundary(0, div);
+            setBoundary(0, p);
+
+            linearSolve(0, p, div, 1, 4);
+
+            for (let j = 1; j <= N; j++) {
+                for (let i = 1; i <= N; i++) {
+                    velocX[IX(i, j)] -= 0.5 * (p[IX(i + 1, j)] - p[IX(i - 1, j)]) * N;
+                    velocY[IX(i, j)] -= 0.5 * (p[IX(i, j + 1)] - p[IX(i, j - 1)]) * N;
+                }
+            }
+            setBoundary(1, velocX);
+            setBoundary(2, velocY);
+        }
+
+        function velocityStep() {
+            addSource(velocityX, velocityXPrev, DT);
+            addSource(velocityY, velocityYPrev, DT);
+
+            [velocityXPrev, velocityX] = [velocityX, velocityXPrev];
+            diffuse(1, velocityX, velocityXPrev, VISCOSITY, DT);
+
+            [velocityYPrev, velocityY] = [velocityY, velocityYPrev];
+            diffuse(2, velocityY, velocityYPrev, VISCOSITY, DT);
+
+            project(velocityX, velocityY, velocityXPrev, velocityYPrev);
+
+            [velocityXPrev, velocityX] = [velocityX, velocityXPrev];
+            [velocityYPrev, velocityY] = [velocityY, velocityYPrev];
+
+            advect(1, velocityX, velocityXPrev, velocityXPrev, velocityYPrev, DT);
+            advect(2, velocityY, velocityYPrev, velocityXPrev, velocityYPrev, DT);
+
+            project(velocityX, velocityY, velocityXPrev, velocityYPrev);
+        }
+
+        function densityStep() {
+            addSource(colorR, colorRPrev, DT);
+            addSource(colorG, colorGPrev, DT);
+            addSource(colorB, colorBPrev, DT);
+
+            [colorRPrev, colorR] = [colorR, colorRPrev];
+            [colorGPrev, colorG] = [colorG, colorGPrev];
+            [colorBPrev, colorB] = [colorB, colorBPrev];
+
+            diffuse(0, colorR, colorRPrev, DIFFUSION, DT);
+            diffuse(0, colorG, colorGPrev, DIFFUSION, DT);
+            diffuse(0, colorB, colorBPrev, DIFFUSION, DT);
+
+            [colorRPrev, colorR] = [colorR, colorRPrev];
+            [colorGPrev, colorG] = [colorG, colorGPrev];
+            [colorBPrev, colorB] = [colorB, colorBPrev];
+
+            advect(0, colorR, colorRPrev, velocityX, velocityY, DT);
+            advect(0, colorG, colorGPrev, velocityX, velocityY, DT);
+            advect(0, colorB, colorBPrev, velocityX, velocityY, DT);
+        }
+
+        function clearPrevious() {
+            velocityXPrev.fill(0);
+            velocityYPrev.fill(0);
+            colorRPrev.fill(0);
+            colorGPrev.fill(0);
+            colorBPrev.fill(0);
+        }
+
+        function addInteraction(x, y, dx, dy) {
+            const i = Math.floor((x / width) * N) + 1;
+            const j = Math.floor((y / height) * N) + 1;
+
+            if (i < 1 || i > N || j < 1 || j > N) return;
+
+            // Add velocity
+            const force = 5;
+            const radius = 3;
+
+            for (let di = -radius; di <= radius; di++) {
+                for (let dj = -radius; dj <= radius; dj++) {
+                    const ni = i + di;
+                    const nj = j + dj;
+                    if (ni >= 1 && ni <= N && nj >= 1 && nj <= N) {
+                        const dist = Math.sqrt(di * di + dj * dj);
+                        const falloff = Math.max(0, 1 - dist / (radius + 1));
+                        const idx = IX(ni, nj);
+
+                        velocityXPrev[idx] += dx * force * falloff;
+                        velocityYPrev[idx] += dy * force * falloff;
+
+                        // Add color
+                        const color = NEON_COLORS[colorIndex];
+                        const colorAmount = 100 * falloff;
+                        colorRPrev[idx] += color.r * colorAmount;
+                        colorGPrev[idx] += color.g * colorAmount;
+                        colorBPrev[idx] += color.b * colorAmount;
+                    }
+                }
+            }
+        }
+
+        function addRandomFlow() {
+            // Add subtle random currents for ambient motion
+            if (Math.random() < 0.02) {
+                const x = Math.random() * width;
+                const y = Math.random() * height;
+                const angle = Math.random() * Math.PI * 2;
+                const strength = 20 + Math.random() * 30;
+
+                const tempColorIndex = colorIndex;
+                colorIndex = Math.floor(Math.random() * NEON_COLORS.length);
+                addInteraction(x, y, Math.cos(angle) * strength, Math.sin(angle) * strength);
+                colorIndex = tempColorIndex;
+            }
+        }
+
+        function render() {
+            // Clear to dark background
+            pixels.fill(0);
+
+            // Render fluid with bloom effect
+            const scaleX = width / N;
+            const scaleY = height / N;
+
+            // First pass: render base colors
+            for (let j = 1; j <= N; j++) {
+                for (let i = 1; i <= N; i++) {
+                    const idx = IX(i, j);
+                    let r = colorR[idx];
+                    let g = colorG[idx];
+                    let b = colorB[idx];
+
+                    // Decay colors slightly
+                    colorR[idx] *= 0.995;
+                    colorG[idx] *= 0.995;
+                    colorB[idx] *= 0.995;
+
+                    if (r < 1 && g < 1 && b < 1) continue;
+
+                    // Calculate pixel coordinates
+                    const px = Math.floor((i - 1) * scaleX);
+                    const py = Math.floor((j - 1) * scaleY);
+                    const px2 = Math.floor(i * scaleX);
+                    const py2 = Math.floor(j * scaleY);
+
+                    // Clamp colors
+                    r = Math.min(255, r);
+                    g = Math.min(255, g);
+                    b = Math.min(255, b);
+
+                    // Fill cell
+                    for (let y = py; y < py2 && y < height; y++) {
+                        for (let x = px; x < px2 && x < width; x++) {
+                            const pidx = (y * width + x) * 4;
+                            pixels[pidx] = Math.min(255, pixels[pidx] + r);
+                            pixels[pidx + 1] = Math.min(255, pixels[pidx + 1] + g);
+                            pixels[pidx + 2] = Math.min(255, pixels[pidx + 2] + b);
+                            pixels[pidx + 3] = 255;
+                        }
+                    }
+                }
+            }
+
+            // Apply bloom effect (skip in embedded mode for performance)
+            if (enableBloom) {
+                applyBloom();
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function applyBloom() {
+            // Simple horizontal + vertical bloom
+            const threshold = 100;
+            const bloomStrength = 0.3;
+            const bloomRadius = 3;
+
+            // Create a temporary buffer for bloom
+            const temp = new Uint8ClampedArray(pixels.length);
+
+            // Horizontal blur pass
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const idx = (y * width + x) * 4;
+
+                    let r = 0, g = 0, b = 0, count = 0;
+
+                    for (let dx = -bloomRadius; dx <= bloomRadius; dx++) {
+                        const nx = x + dx;
+                        if (nx >= 0 && nx < width) {
+                            const nidx = (y * width + nx) * 4;
+                            const brightness = (pixels[nidx] + pixels[nidx + 1] + pixels[nidx + 2]) / 3;
+
+                            if (brightness > threshold) {
+                                const weight = 1 - Math.abs(dx) / (bloomRadius + 1);
+                                r += pixels[nidx] * weight;
+                                g += pixels[nidx + 1] * weight;
+                                b += pixels[nidx + 2] * weight;
+                                count += weight;
+                            }
+                        }
+                    }
+
+                    if (count > 0) {
+                        temp[idx] = r / count;
+                        temp[idx + 1] = g / count;
+                        temp[idx + 2] = b / count;
+                    }
+                }
+            }
+
+            // Apply bloom to original
+            for (let i = 0; i < pixels.length; i += 4) {
+                pixels[i] = Math.min(255, pixels[i] + temp[i] * bloomStrength);
+                pixels[i + 1] = Math.min(255, pixels[i + 1] + temp[i + 1] * bloomStrength);
+                pixels[i + 2] = Math.min(255, pixels[i + 2] + temp[i + 2] * bloomStrength);
+                pixels[i + 3] = 255;
+            }
+
+            // Vertical blur pass
+            temp.fill(0);
+
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const idx = (y * width + x) * 4;
+
+                    let r = 0, g = 0, b = 0, count = 0;
+
+                    for (let dy = -bloomRadius; dy <= bloomRadius; dy++) {
+                        const ny = y + dy;
+                        if (ny >= 0 && ny < height) {
+                            const nidx = (ny * width + x) * 4;
+                            const brightness = (pixels[nidx] + pixels[nidx + 1] + pixels[nidx + 2]) / 3;
+
+                            if (brightness > threshold) {
+                                const weight = 1 - Math.abs(dy) / (bloomRadius + 1);
+                                r += pixels[nidx] * weight;
+                                g += pixels[nidx + 1] * weight;
+                                b += pixels[nidx + 2] * weight;
+                                count += weight;
+                            }
+                        }
+                    }
+
+                    if (count > 0) {
+                        temp[idx] = r / count;
+                        temp[idx + 1] = g / count;
+                        temp[idx + 2] = b / count;
+                    }
+                }
+            }
+
+            // Final composite
+            for (let i = 0; i < pixels.length; i += 4) {
+                pixels[i] = Math.min(255, pixels[i] + temp[i] * bloomStrength);
+                pixels[i + 1] = Math.min(255, pixels[i + 1] + temp[i + 1] * bloomStrength);
+                pixels[i + 2] = Math.min(255, pixels[i + 2] + temp[i + 2] * bloomStrength);
+            }
+        }
+
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                fpsDisplay.textContent = frameCount + ' FPS';
+                frameCount = 0;
+                lastFpsTime = now;
+            }
+        }
+
+        // Frame rate limiting for embedded mode
+        let lastFrameTime = 0;
+        const targetFPS = isEmbedded ? 24 : 60;
+        const frameInterval = 1000 / targetFPS;
+
+        // Skip bloom in embedded mode
+        const enableBloom = !isEmbedded;
+
+        function animate(timestamp) {
+            // Skip if paused
+            if (isPaused) {
+                animationId = null;
+                return;
+            }
+
+            // Frame rate limiting
+            if (timestamp - lastFrameTime < frameInterval) {
+                animationId = requestAnimationFrame(animate);
+                return;
+            }
+            lastFrameTime = timestamp;
+
+            clearPrevious();
+
+            // Handle interaction
+            if (isMouseDown) {
+                const dx = mouseX - prevMouseX;
+                const dy = mouseY - prevMouseY;
+                addInteraction(mouseX, mouseY, dx, dy);
+            }
+
+            // Add ambient motion
+            addRandomFlow();
+
+            // Simulate
+            velocityStep();
+            densityStep();
+
+            // Render
+            render();
+
+            // Update previous mouse position
+            prevMouseX = mouseX;
+            prevMouseY = mouseY;
+
+            updateFPS();
+
+            animationId = requestAnimationFrame(animate);
+        }
+
+        // Event handlers
+        function onMouseDown(e) {
+            isMouseDown = true;
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            prevMouseX = mouseX;
+            prevMouseY = mouseY;
+            colorIndex = (colorIndex + 1) % NEON_COLORS.length;
+        }
+
+        function onMouseMove(e) {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        }
+
+        function onMouseUp() {
+            isMouseDown = false;
+        }
+
+        function onTouchStart(e) {
+            e.preventDefault();
+            isMouseDown = true;
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+            prevMouseX = mouseX;
+            prevMouseY = mouseY;
+            colorIndex = (colorIndex + 1) % NEON_COLORS.length;
+        }
+
+        function onTouchMove(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        }
+
+        function onTouchEnd() {
+            isMouseDown = false;
+        }
+
+        // Start
+        init();
+    </script>
+</body>
+</html>

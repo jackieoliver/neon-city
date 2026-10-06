@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Hyperspace Tunnel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            overflow: hidden;
+            cursor: crosshair;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: #05d9e8;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            opacity: 0.7;
+            text-shadow: 0 0 10px #05d9e8;
+            pointer-events: none;
+        }
+
+        #speed-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: #ff2a6d;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            text-shadow: 0 0 10px #ff2a6d;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="tunnel"></canvas>
+    <div id="info">Move mouse to control warp speed</div>
+    <div id="speed-indicator">WARP: <span id="warp-level">1.0</span>x</div>
+
+    <script>
+        const canvas = document.getElementById('tunnel');
+        const ctx = canvas.getContext('2d');
+        const warpDisplay = document.getElementById('warp-level');
+
+        let width, height, centerX, centerY;
+        let mouseX = 0.5, mouseY = 0.5;
+        let speed = 1;
+        let targetSpeed = 1;
+        let time = 0;
+        let lastTime = 0;
+
+        const NEON_PINK = '#ff2a6d';
+        const NEON_CYAN = '#05d9e8';
+        const NEON_PURPLE = '#d300c5';
+        const NEON_YELLOW = '#ffe66d';
+
+        // Tunnel ring configuration
+        const rings = [];
+        const RING_COUNT = 40;
+        const MAX_DEPTH = 2000;
+
+        // Floating geometric shapes
+        const shapes = [];
+        const SHAPE_COUNT = 25;
+
+        // Particle trails
+        const particles = [];
+        const PARTICLE_COUNT = 150;
+
+        class TunnelRing {
+            constructor(z) {
+                this.z = z;
+                this.sides = Math.random() < 0.3 ? 6 : (Math.random() < 0.5 ? 8 : 4);
+                this.rotation = Math.random() * Math.PI * 2;
+                this.rotationSpeed = (Math.random() - 0.5) * 0.02;
+                this.baseRadius = 300 + Math.random() * 100;
+                this.pulsePhase = Math.random() * Math.PI * 2;
+                this.colorIndex = Math.floor(Math.random() * 2);
+            }
+
+            update(delta, currentSpeed) {
+                this.z -= currentSpeed * delta * 0.5;
+                this.rotation += this.rotationSpeed * delta * 0.05;
+
+                if (this.z < 10) {
+                    this.z = MAX_DEPTH;
+                    this.sides = Math.random() < 0.3 ? 6 : (Math.random() < 0.5 ? 8 : 4);
+                    this.rotationSpeed = (Math.random() - 0.5) * 0.02;
+                }
+            }
+
+            draw(t) {
+                const scale = 400 / this.z;
+                const screenRadius = this.baseRadius * scale;
+                const pulse = Math.sin(t * 0.003 + this.pulsePhase) * 0.2 + 1;
+                const finalRadius = screenRadius * pulse;
+
+                if (finalRadius < 2 || finalRadius > 2000) return;
+
+                const alpha = Math.min(1, Math.max(0.1, 1 - this.z / MAX_DEPTH));
+                const color = this.colorIndex === 0 ? NEON_PINK : NEON_CYAN;
+
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.rotate(this.rotation);
+
+                ctx.beginPath();
+                for (let i = 0; i <= this.sides; i++) {
+                    const angle = (i / this.sides) * Math.PI * 2;
+                    const x = Math.cos(angle) * finalRadius;
+                    const y = Math.sin(angle) * finalRadius;
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.closePath();
+
+                ctx.strokeStyle = color;
+                ctx.lineWidth = Math.max(1, 3 * scale);
+                ctx.globalAlpha = alpha * 0.8;
+                ctx.shadowColor = color;
+                ctx.shadowBlur = 20 * scale;
+                ctx.stroke();
+
+                // Inner glow line
+                ctx.lineWidth = Math.max(0.5, 1.5 * scale);
+                ctx.globalAlpha = alpha * 0.4;
+                ctx.stroke();
+
+                ctx.restore();
+            }
+        }
+
+        class GeometricShape {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.z = MAX_DEPTH * (0.5 + Math.random() * 0.5);
+                this.angle = Math.random() * Math.PI * 2;
+                this.distance = 100 + Math.random() * 200;
+                this.type = Math.floor(Math.random() * 4); // 0: triangle, 1: square, 2: pentagon, 3: hexagon
+                this.size = 20 + Math.random() * 40;
+                this.rotation = Math.random() * Math.PI * 2;
+                this.rotationSpeed = (Math.random() - 0.5) * 0.05;
+                this.orbitSpeed = (Math.random() - 0.5) * 0.001;
+                this.color = Math.random() < 0.5 ? NEON_PINK : NEON_CYAN;
+                this.filled = Math.random() < 0.3;
+            }
+
+            update(delta, currentSpeed) {
+                this.z -= currentSpeed * delta * 0.5;
+                this.rotation += this.rotationSpeed * delta * 0.05;
+                this.angle += this.orbitSpeed * delta;
+
+                if (this.z < 10) {
+                    this.reset();
+                }
+            }
+
+            draw() {
+                const scale = 400 / this.z;
+                const x = centerX + Math.cos(this.angle) * this.distance * scale;
+                const y = centerY + Math.sin(this.angle) * this.distance * scale;
+                const screenSize = this.size * scale;
+
+                if (screenSize < 1 || screenSize > 500) return;
+
+                const alpha = Math.min(1, Math.max(0.1, 1 - this.z / MAX_DEPTH));
+                const sides = this.type + 3;
+
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.rotate(this.rotation);
+
+                ctx.beginPath();
+                for (let i = 0; i <= sides; i++) {
+                    const angle = (i / sides) * Math.PI * 2 - Math.PI / 2;
+                    const px = Math.cos(angle) * screenSize;
+                    const py = Math.sin(angle) * screenSize;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = Math.max(1, 2 * scale);
+                ctx.globalAlpha = alpha * 0.9;
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 15;
+
+                if (this.filled) {
+                    ctx.fillStyle = this.color;
+                    ctx.globalAlpha = alpha * 0.2;
+                    ctx.fill();
+                    ctx.globalAlpha = alpha * 0.9;
+                }
+                ctx.stroke();
+
+                ctx.restore();
+            }
+        }
+
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.z = MAX_DEPTH * Math.random();
+                this.angle = Math.random() * Math.PI * 2;
+                this.distance = 50 + Math.random() * 350;
+                this.size = 1 + Math.random() * 2;
+                this.color = Math.random() < 0.6 ? NEON_CYAN :
+                             Math.random() < 0.5 ? NEON_PINK : NEON_PURPLE;
+                this.trail = [];
+                this.maxTrail = 5 + Math.floor(Math.random() * 10);
+            }
+
+            update(delta, currentSpeed) {
+                const prevZ = this.z;
+                this.z -= currentSpeed * delta * 0.6;
+                this.angle += 0.0005 * delta;
+
+                // Store trail positions
+                const scale = 400 / prevZ;
+                const x = centerX + Math.cos(this.angle) * this.distance * scale;
+                const y = centerY + Math.sin(this.angle) * this.distance * scale;
+
+                this.trail.unshift({ x, y, alpha: 1 });
+                if (this.trail.length > this.maxTrail) {
+                    this.trail.pop();
+                }
+
+                // Fade trail
+                this.trail.forEach((t, i) => {
+                    t.alpha = 1 - (i / this.maxTrail);
+                });
+
+                if (this.z < 10) {
+                    this.reset();
+                    this.z = MAX_DEPTH;
+                }
+            }
+
+            draw() {
+                const scale = 400 / this.z;
+                const x = centerX + Math.cos(this.angle) * this.distance * scale;
+                const y = centerY + Math.sin(this.angle) * this.distance * scale;
+                const screenSize = this.size * scale;
+
+                if (screenSize < 0.5 || screenSize > 20) return;
+
+                const alpha = Math.min(1, Math.max(0.1, 1 - this.z / MAX_DEPTH));
+
+                // Draw trail
+                if (this.trail.length > 1) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.trail[0].x, this.trail[0].y);
+                    for (let i = 1; i < this.trail.length; i++) {
+                        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                    }
+                    ctx.strokeStyle = this.color;
+                    ctx.lineWidth = screenSize * 0.5;
+                    ctx.globalAlpha = alpha * 0.3;
+                    ctx.stroke();
+                }
+
+                // Draw particle
+                ctx.beginPath();
+                ctx.arc(x, y, screenSize, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = alpha;
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 10;
+                ctx.fill();
+            }
+        }
+
+        function init() {
+            resize();
+            window.addEventListener('resize', resize);
+
+            document.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX / width;
+                mouseY = e.clientY / height;
+            });
+
+            document.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                mouseX = e.touches[0].clientX / width;
+                mouseY = e.touches[0].clientY / height;
+            }, { passive: false });
+
+            // Initialize tunnel rings
+            for (let i = 0; i < RING_COUNT; i++) {
+                rings.push(new TunnelRing((i / RING_COUNT) * MAX_DEPTH));
+            }
+
+            // Initialize geometric shapes
+            for (let i = 0; i < SHAPE_COUNT; i++) {
+                shapes.push(new GeometricShape());
+            }
+
+            // Initialize particles
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                particles.push(new Particle());
+            }
+
+            lastTime = performance.now();
+            animate();
+        }
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+        }
+
+        function drawBackground(t) {
+            // Create radial gradient for vignette effect
+            const gradient = ctx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, Math.max(width, height) * 0.7
+            );
+
+            const pulse = Math.sin(t * 0.001) * 0.02;
+            gradient.addColorStop(0, `rgba(10, 0, 20, ${0.95 + pulse})`);
+            gradient.addColorStop(0.5, 'rgba(5, 0, 15, 0.98)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 1)');
+
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+
+            // Add subtle grid lines receding into distance
+            drawGridLines(t);
+        }
+
+        function drawGridLines(t) {
+            ctx.save();
+            ctx.globalAlpha = 0.1;
+            ctx.strokeStyle = NEON_CYAN;
+            ctx.lineWidth = 1;
+
+            const gridSpacing = 50;
+            const perspective = 800;
+
+            // Horizontal lines
+            for (let i = -10; i <= 10; i++) {
+                const y = centerY + i * gridSpacing;
+                const alpha = 0.1 - Math.abs(i) * 0.008;
+                if (alpha > 0) {
+                    ctx.globalAlpha = alpha;
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(width, y);
+                    ctx.stroke();
+                }
+            }
+
+            // Vertical lines
+            for (let i = -15; i <= 15; i++) {
+                const x = centerX + i * gridSpacing;
+                const alpha = 0.1 - Math.abs(i) * 0.005;
+                if (alpha > 0) {
+                    ctx.globalAlpha = alpha;
+                    ctx.beginPath();
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, height);
+                    ctx.stroke();
+                }
+            }
+
+            ctx.restore();
+        }
+
+        function drawCenterVortex(t) {
+            ctx.save();
+            ctx.translate(centerX, centerY);
+
+            // Spinning vortex lines
+            const lineCount = 12;
+            for (let i = 0; i < lineCount; i++) {
+                const angle = (i / lineCount) * Math.PI * 2 + t * 0.002;
+                const length = 50 + Math.sin(t * 0.005 + i) * 20;
+
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(
+                    Math.cos(angle) * length,
+                    Math.sin(angle) * length
+                );
+
+                const gradient = ctx.createLinearGradient(
+                    0, 0,
+                    Math.cos(angle) * length,
+                    Math.sin(angle) * length
+                );
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+                gradient.addColorStop(1, i % 2 === 0 ? NEON_PINK : NEON_CYAN);
+
+                ctx.strokeStyle = gradient;
+                ctx.lineWidth = 2;
+                ctx.globalAlpha = 0.6;
+                ctx.shadowColor = i % 2 === 0 ? NEON_PINK : NEON_CYAN;
+                ctx.shadowBlur = 10;
+                ctx.stroke();
+            }
+
+            // Center glow
+            const glowGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 30);
+            glowGradient.addColorStop(0, 'rgba(255, 255, 255, 0.5)');
+            glowGradient.addColorStop(0.5, 'rgba(5, 217, 232, 0.3)');
+            glowGradient.addColorStop(1, 'rgba(255, 42, 109, 0)');
+
+            ctx.fillStyle = glowGradient;
+            ctx.globalAlpha = 0.8 + Math.sin(t * 0.01) * 0.2;
+            ctx.beginPath();
+            ctx.arc(0, 0, 30, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        function drawSpeedLines(t, currentSpeed) {
+            if (currentSpeed < 2) return;
+
+            ctx.save();
+            const lineCount = Math.floor(currentSpeed * 5);
+
+            for (let i = 0; i < lineCount; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const distance = 100 + Math.random() * 300;
+                const length = 20 + Math.random() * 50 * (currentSpeed / 5);
+
+                const x1 = centerX + Math.cos(angle) * distance;
+                const y1 = centerY + Math.sin(angle) * distance;
+                const x2 = centerX + Math.cos(angle) * (distance + length);
+                const y2 = centerY + Math.sin(angle) * (distance + length);
+
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+
+                ctx.strokeStyle = Math.random() < 0.5 ? NEON_PINK : NEON_CYAN;
+                ctx.lineWidth = 1;
+                ctx.globalAlpha = 0.3 * (currentSpeed / 10);
+                ctx.stroke();
+            }
+
+            ctx.restore();
+        }
+
+        function animate(currentTime = 0) {
+            const delta = Math.min(50, currentTime - lastTime);
+            lastTime = currentTime;
+            time = currentTime;
+
+            // Calculate target speed based on mouse position
+            const distFromCenter = Math.sqrt(
+                Math.pow(mouseX - 0.5, 2) + Math.pow(mouseY - 0.5, 2)
+            );
+            targetSpeed = 1 + distFromCenter * 18; // Speed range: 1x to 10x
+
+            // Smooth speed transition
+            speed += (targetSpeed - speed) * 0.05;
+
+            // Update warp display
+            warpDisplay.textContent = speed.toFixed(1);
+
+            // Clear and draw background
+            drawBackground(time);
+
+            // Sort objects by depth for proper rendering
+            const allObjects = [...rings, ...shapes, ...particles];
+            allObjects.sort((a, b) => b.z - a.z);
+
+            // Update and draw all objects
+            rings.forEach(ring => ring.update(delta, speed));
+            shapes.forEach(shape => shape.update(delta, speed));
+            particles.forEach(particle => particle.update(delta, speed));
+
+            // Draw in depth order
+            allObjects.forEach(obj => obj.draw(time));
+
+            // Draw speed lines at high speeds
+            drawSpeedLines(time, speed);
+
+            // Draw center vortex
+            drawCenterVortex(time);
+
+            // Add scanline effect
+            drawScanlines();
+
+            // Add chromatic aberration at high speeds
+            if (speed > 5) {
+                drawChromaticAberration(speed);
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        function drawScanlines() {
+            ctx.save();
+            ctx.globalAlpha = 0.03;
+            ctx.fillStyle = '#000';
+
+            for (let y = 0; y < height; y += 4) {
+                ctx.fillRect(0, y, width, 2);
+            }
+            ctx.restore();
+        }
+
+        function drawChromaticAberration(currentSpeed) {
+            // Simple chromatic aberration effect
+            const intensity = (currentSpeed - 5) / 5 * 2;
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.globalAlpha = 0.1 * intensity;
+
+            // Slight color shift on edges
+            const gradient = ctx.createRadialGradient(
+                centerX, centerY, 0,
+                centerX, centerY, Math.max(width, height) * 0.5
+            );
+            gradient.addColorStop(0, 'transparent');
+            gradient.addColorStop(0.7, 'transparent');
+            gradient.addColorStop(1, NEON_PINK);
+
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.restore();
+        }
+
+        // Start the visualization
+        init();
+    </script>
+</body>
+</html>

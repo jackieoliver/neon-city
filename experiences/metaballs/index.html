@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Metaballs</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.4);
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            pointer-events: none;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="info">Move mouse to attract blobs</div>
+
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+        let mouseX = 0, mouseY = 0;
+        let mouseActive = false;
+
+        // Neon colors
+        const colors = [
+            { r: 255, g: 42, b: 109 },   // #ff2a6d - Hot pink
+            { r: 5, g: 217, b: 232 },    // #05d9e8 - Cyan
+            { r: 211, g: 0, b: 197 }     // #d300c5 - Magenta
+        ];
+
+        // Metaball class
+        class Metaball {
+            constructor(x, y, radius, colorIndex) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+                this.baseRadius = radius;
+                this.colorIndex = colorIndex;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = (Math.random() - 0.5) * 2;
+                this.targetX = x;
+                this.targetY = y;
+                this.angle = Math.random() * Math.PI * 2;
+                this.angleSpeed = (Math.random() - 0.5) * 0.02;
+                this.orbitRadius = 50 + Math.random() * 100;
+                this.pulsePhase = Math.random() * Math.PI * 2;
+            }
+
+            update(dt) {
+                // Pulsing radius
+                this.pulsePhase += dt * 2;
+                this.radius = this.baseRadius + Math.sin(this.pulsePhase) * (this.baseRadius * 0.1);
+
+                // Organic wandering motion
+                this.angle += this.angleSpeed;
+                const wanderX = Math.cos(this.angle) * this.orbitRadius * 0.01;
+                const wanderY = Math.sin(this.angle * 1.3) * this.orbitRadius * 0.01;
+
+                // Mouse attraction
+                if (mouseActive) {
+                    const dx = mouseX - this.x;
+                    const dy = mouseY - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    const force = Math.min(300 / (dist + 1), 3);
+                    this.vx += (dx / dist) * force * 0.05;
+                    this.vy += (dy / dist) * force * 0.05;
+                }
+
+                // Apply wandering
+                this.vx += wanderX;
+                this.vy += wanderY;
+
+                // Damping
+                this.vx *= 0.98;
+                this.vy *= 0.98;
+
+                // Speed limit
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (speed > 5) {
+                    this.vx = (this.vx / speed) * 5;
+                    this.vy = (this.vy / speed) * 5;
+                }
+
+                // Update position
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Boundary bounce with soft edges
+                const margin = this.radius * 2;
+                if (this.x < margin) {
+                    this.x = margin;
+                    this.vx *= -0.5;
+                }
+                if (this.x > width - margin) {
+                    this.x = width - margin;
+                    this.vx *= -0.5;
+                }
+                if (this.y < margin) {
+                    this.y = margin;
+                    this.vy *= -0.5;
+                }
+                if (this.y > height - margin) {
+                    this.y = height - margin;
+                    this.vy *= -0.5;
+                }
+            }
+        }
+
+        // Metaballs array
+        let metaballs = [];
+
+        // Initialize
+        function init() {
+            resize();
+
+            // Create metaballs
+            metaballs = [];
+            const numBalls = 8;
+
+            for (let i = 0; i < numBalls; i++) {
+                const x = Math.random() * width;
+                const y = Math.random() * height;
+                const radius = 40 + Math.random() * 60;
+                const colorIndex = i % colors.length;
+                metaballs.push(new Metaball(x, y, radius, colorIndex));
+            }
+        }
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+
+        // Calculate metaball field value at a point
+        function getFieldValue(x, y) {
+            let sum = 0;
+            let colorSum = { r: 0, g: 0, b: 0 };
+            let totalWeight = 0;
+
+            for (const ball of metaballs) {
+                const dx = x - ball.x;
+                const dy = y - ball.y;
+                const distSq = dx * dx + dy * dy;
+
+                // Field contribution (inverse square with radius scaling)
+                const contribution = (ball.radius * ball.radius) / distSq;
+                sum += contribution;
+
+                // Color blending based on field contribution
+                const color = colors[ball.colorIndex];
+                const weight = contribution;
+                colorSum.r += color.r * weight;
+                colorSum.g += color.g * weight;
+                colorSum.b += color.b * weight;
+                totalWeight += weight;
+            }
+
+            // Normalize colors
+            if (totalWeight > 0) {
+                colorSum.r /= totalWeight;
+                colorSum.g /= totalWeight;
+                colorSum.b /= totalWeight;
+            }
+
+            return { value: sum, color: colorSum };
+        }
+
+        // Render using marching squares with pixel-based approach
+        function render() {
+            // Create image data for pixel manipulation
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+
+            // Resolution scaling for performance
+            const scale = 3; // Sample every 3rd pixel
+            const threshold = 1.0;
+
+            // Pre-calculate metaball data for faster access
+            const ballData = metaballs.map(b => ({
+                x: b.x,
+                y: b.y,
+                r2: b.radius * b.radius,
+                colorIndex: b.colorIndex
+            }));
+
+            for (let py = 0; py < height; py += scale) {
+                for (let px = 0; px < width; px += scale) {
+                    // Calculate field value
+                    let sum = 0;
+                    let colorR = 0, colorG = 0, colorB = 0;
+                    let totalWeight = 0;
+
+                    for (const ball of ballData) {
+                        const dx = px - ball.x;
+                        const dy = py - ball.y;
+                        const distSq = dx * dx + dy * dy;
+                        const contribution = ball.r2 / distSq;
+                        sum += contribution;
+
+                        const color = colors[ball.colorIndex];
+                        colorR += color.r * contribution;
+                        colorG += color.g * contribution;
+                        colorB += color.b * contribution;
+                        totalWeight += contribution;
+                    }
+
+                    if (sum >= threshold && totalWeight > 0) {
+                        // Inside metaball
+                        const r = Math.min(255, colorR / totalWeight);
+                        const g = Math.min(255, colorG / totalWeight);
+                        const b = Math.min(255, colorB / totalWeight);
+
+                        // Calculate intensity based on how deep inside
+                        const intensity = Math.min(1, (sum - threshold) * 0.5 + 0.5);
+                        const glow = Math.min(1, (sum - threshold) * 0.3);
+
+                        // Fill scaled pixels
+                        for (let sy = 0; sy < scale && py + sy < height; sy++) {
+                            for (let sx = 0; sx < scale && px + sx < width; sx++) {
+                                const idx = ((py + sy) * width + (px + sx)) * 4;
+                                data[idx] = r * intensity + 255 * glow * 0.3;
+                                data[idx + 1] = g * intensity + 255 * glow * 0.1;
+                                data[idx + 2] = b * intensity + 255 * glow * 0.3;
+                                data[idx + 3] = 255;
+                            }
+                        }
+                    } else if (sum >= threshold * 0.7) {
+                        // Edge glow
+                        const edgeFactor = (sum - threshold * 0.7) / (threshold * 0.3);
+                        const r = Math.min(255, (colorR / totalWeight) * edgeFactor * 0.5);
+                        const g = Math.min(255, (colorG / totalWeight) * edgeFactor * 0.5);
+                        const b = Math.min(255, (colorB / totalWeight) * edgeFactor * 0.5);
+
+                        for (let sy = 0; sy < scale && py + sy < height; sy++) {
+                            for (let sx = 0; sx < scale && px + sx < width; sx++) {
+                                const idx = ((py + sy) * width + (px + sx)) * 4;
+                                data[idx] = r;
+                                data[idx + 1] = g;
+                                data[idx + 2] = b;
+                                data[idx + 3] = 255;
+                            }
+                        }
+                    } else {
+                        // Background - dark with subtle noise
+                        for (let sy = 0; sy < scale && py + sy < height; sy++) {
+                            for (let sx = 0; sx < scale && px + sx < width; sx++) {
+                                const idx = ((py + sy) * width + (px + sx)) * 4;
+                                const noise = Math.random() * 5;
+                                data[idx] = 10 + noise;
+                                data[idx + 1] = 10 + noise;
+                                data[idx + 2] = 15 + noise;
+                                data[idx + 3] = 255;
+                            }
+                        }
+                    }
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+
+            // Add glow effect using composite operations
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.filter = 'blur(20px)';
+            ctx.globalAlpha = 0.4;
+            ctx.drawImage(canvas, 0, 0);
+            ctx.restore();
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.filter = 'blur(40px)';
+            ctx.globalAlpha = 0.2;
+            ctx.drawImage(canvas, 0, 0);
+            ctx.restore();
+        }
+
+        // Alternative faster render using radial gradients
+        function renderGradient() {
+            // Clear with dark background
+            ctx.fillStyle = '#0a0a0f';
+            ctx.fillRect(0, 0, width, height);
+
+            // Create offscreen canvas for metaball field
+            const offCanvas = document.createElement('canvas');
+            offCanvas.width = width;
+            offCanvas.height = height;
+            const offCtx = offCanvas.getContext('2d');
+
+            // Draw each metaball as a radial gradient
+            offCtx.globalCompositeOperation = 'lighter';
+
+            for (const ball of metaballs) {
+                const color = colors[ball.colorIndex];
+                const gradient = offCtx.createRadialGradient(
+                    ball.x, ball.y, 0,
+                    ball.x, ball.y, ball.radius * 2.5
+                );
+
+                gradient.addColorStop(0, `rgba(${color.r}, ${color.g}, ${color.b}, 1)`);
+                gradient.addColorStop(0.4, `rgba(${color.r}, ${color.g}, ${color.b}, 0.6)`);
+                gradient.addColorStop(0.7, `rgba(${color.r}, ${color.g}, ${color.b}, 0.2)`);
+                gradient.addColorStop(1, `rgba(${color.r}, ${color.g}, ${color.b}, 0)`);
+
+                offCtx.fillStyle = gradient;
+                offCtx.beginPath();
+                offCtx.arc(ball.x, ball.y, ball.radius * 2.5, 0, Math.PI * 2);
+                offCtx.fill();
+            }
+
+            // Apply threshold using image data
+            const imageData = offCtx.getImageData(0, 0, width, height);
+            const data = imageData.data;
+            const threshold = 180;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+
+                if (brightness > threshold) {
+                    // Inside blob - enhance and add glow
+                    const factor = 1 + (brightness - threshold) / 255 * 0.5;
+                    data[i] = Math.min(255, data[i] * factor);
+                    data[i + 1] = Math.min(255, data[i + 1] * factor);
+                    data[i + 2] = Math.min(255, data[i + 2] * factor);
+                    data[i + 3] = 255;
+                } else if (brightness > threshold * 0.6) {
+                    // Edge glow
+                    const edge = (brightness - threshold * 0.6) / (threshold * 0.4);
+                    data[i] = data[i] * edge * 0.5;
+                    data[i + 1] = data[i + 1] * edge * 0.5;
+                    data[i + 2] = data[i + 2] * edge * 0.5;
+                    data[i + 3] = 255;
+                } else {
+                    // Background
+                    data[i] = 10;
+                    data[i + 1] = 10;
+                    data[i + 2] = 15;
+                    data[i + 3] = 255;
+                }
+            }
+
+            offCtx.putImageData(imageData, 0, 0);
+
+            // Draw to main canvas with glow
+            ctx.drawImage(offCanvas, 0, 0);
+
+            // Add bloom layers
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.filter = 'blur(15px)';
+            ctx.globalAlpha = 0.5;
+            ctx.drawImage(offCanvas, 0, 0);
+            ctx.restore();
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.filter = 'blur(30px)';
+            ctx.globalAlpha = 0.3;
+            ctx.drawImage(offCanvas, 0, 0);
+            ctx.restore();
+        }
+
+        // High quality metaball render using WebGL-style approach
+        function renderMetaballs() {
+            // Clear
+            ctx.fillStyle = '#0a0a0f';
+            ctx.fillRect(0, 0, width, height);
+
+            // Sample at lower resolution for performance
+            const scale = 2;
+            const w = Math.ceil(width / scale);
+            const h = Math.ceil(height / scale);
+
+            const offCanvas = document.createElement('canvas');
+            offCanvas.width = w;
+            offCanvas.height = h;
+            const offCtx = offCanvas.getContext('2d');
+
+            const imageData = offCtx.createImageData(w, h);
+            const data = imageData.data;
+
+            const threshold = 1.0;
+
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const px = x * scale;
+                    const py = y * scale;
+
+                    let sum = 0;
+                    let colorR = 0, colorG = 0, colorB = 0;
+                    let totalWeight = 0;
+
+                    for (const ball of metaballs) {
+                        const dx = px - ball.x;
+                        const dy = py - ball.y;
+                        const distSq = dx * dx + dy * dy + 1;
+                        const contribution = (ball.radius * ball.radius) / distSq;
+                        sum += contribution;
+
+                        const color = colors[ball.colorIndex];
+                        colorR += color.r * contribution;
+                        colorG += color.g * contribution;
+                        colorB += color.b * contribution;
+                        totalWeight += contribution;
+                    }
+
+                    const idx = (y * w + x) * 4;
+
+                    if (sum >= threshold) {
+                        // Inside - bright neon
+                        const intensity = Math.min(1, 0.7 + (sum - threshold) * 0.2);
+                        const core = Math.min(1, (sum - threshold) * 0.5);
+
+                        data[idx] = Math.min(255, (colorR / totalWeight) * intensity + 60 * core);
+                        data[idx + 1] = Math.min(255, (colorG / totalWeight) * intensity + 40 * core);
+                        data[idx + 2] = Math.min(255, (colorB / totalWeight) * intensity + 60 * core);
+                        data[idx + 3] = 255;
+                    } else if (sum >= threshold * 0.5) {
+                        // Edge falloff
+                        const edge = (sum - threshold * 0.5) / (threshold * 0.5);
+                        const alpha = edge * edge;
+
+                        data[idx] = (colorR / totalWeight) * alpha * 0.6;
+                        data[idx + 1] = (colorG / totalWeight) * alpha * 0.6;
+                        data[idx + 2] = (colorB / totalWeight) * alpha * 0.6;
+                        data[idx + 3] = 255;
+                    } else {
+                        // Dark background with subtle color hints
+                        const hint = sum / (threshold * 0.5);
+                        data[idx] = 10 + (colorR / Math.max(1, totalWeight)) * hint * 0.05;
+                        data[idx + 1] = 10 + (colorG / Math.max(1, totalWeight)) * hint * 0.05;
+                        data[idx + 2] = 15 + (colorB / Math.max(1, totalWeight)) * hint * 0.05;
+                        data[idx + 3] = 255;
+                    }
+                }
+            }
+
+            offCtx.putImageData(imageData, 0, 0);
+
+            // Scale up and draw
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(offCanvas, 0, 0, w, h, 0, 0, width, height);
+
+            // Bloom effect
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.filter = 'blur(12px)';
+            ctx.globalAlpha = 0.6;
+            ctx.drawImage(canvas, 0, 0);
+            ctx.restore();
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.filter = 'blur(25px)';
+            ctx.globalAlpha = 0.35;
+            ctx.drawImage(canvas, 0, 0);
+            ctx.restore();
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.filter = 'blur(50px)';
+            ctx.globalAlpha = 0.2;
+            ctx.drawImage(canvas, 0, 0);
+            ctx.restore();
+        }
+
+        // Animation loop
+        let lastTime = 0;
+        let frameCount = 0;
+
+        function animate(timestamp) {
+            const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
+            lastTime = timestamp;
+
+            // Update metaballs
+            for (const ball of metaballs) {
+                ball.update(dt);
+            }
+
+            // Inter-ball repulsion to prevent complete overlap
+            for (let i = 0; i < metaballs.length; i++) {
+                for (let j = i + 1; j < metaballs.length; j++) {
+                    const a = metaballs[i];
+                    const b = metaballs[j];
+                    const dx = b.x - a.x;
+                    const dy = b.y - a.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    const minDist = (a.radius + b.radius) * 0.3;
+
+                    if (dist < minDist && dist > 0) {
+                        const force = (minDist - dist) / minDist * 0.5;
+                        const fx = (dx / dist) * force;
+                        const fy = (dy / dist) * force;
+                        a.vx -= fx;
+                        a.vy -= fy;
+                        b.vx += fx;
+                        b.vy += fy;
+                    }
+                }
+            }
+
+            // Render
+            renderMetaballs();
+
+            requestAnimationFrame(animate);
+        }
+
+        // Event listeners
+        window.addEventListener('resize', () => {
+            resize();
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            mouseActive = true;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            mouseActive = false;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+            mouseActive = true;
+        });
+
+        canvas.addEventListener('touchend', () => {
+            mouseActive = false;
+        });
+
+        // Click to add new metaball
+        canvas.addEventListener('click', (e) => {
+            if (metaballs.length < 15) {
+                const radius = 30 + Math.random() * 50;
+                const colorIndex = Math.floor(Math.random() * colors.length);
+                metaballs.push(new Metaball(e.clientX, e.clientY, radius, colorIndex));
+            }
+        });
+
+        // Start
+        init();
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>

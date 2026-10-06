@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Plasma</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="plasma"></canvas>
+
+    <script>
+        const canvas = document.getElementById('plasma');
+        const ctx = canvas.getContext('2d');
+
+        // Plasma resolution (lower = faster, more retro look)
+        const PLASMA_SCALE = 4;
+        let width, height;
+        let plasmaWidth, plasmaHeight;
+        let imageData;
+
+        // Neon palette colors
+        const NEON_PINK = { r: 255, g: 42, b: 109 };    // #ff2a6d
+        const NEON_CYAN = { r: 5, g: 217, b: 232 };     // #05d9e8
+        const NEON_MAGENTA = { r: 211, g: 0, b: 197 };  // #d300c5
+
+        // Pre-computed sine tables for performance
+        const SIN_TABLE_SIZE = 2048;
+        const sinTable = new Float32Array(SIN_TABLE_SIZE);
+        for (let i = 0; i < SIN_TABLE_SIZE; i++) {
+            sinTable[i] = Math.sin((i / SIN_TABLE_SIZE) * Math.PI * 2);
+        }
+
+        // Fast sine lookup
+        function fastSin(angle) {
+            const normalized = ((angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+            const index = Math.floor((normalized / (Math.PI * 2)) * SIN_TABLE_SIZE) % SIN_TABLE_SIZE;
+            return sinTable[index];
+        }
+
+        // Pre-computed color palette (256 colors cycling through neon tones)
+        const PALETTE_SIZE = 256;
+        const palette = new Uint8ClampedArray(PALETTE_SIZE * 3);
+
+        function generatePalette() {
+            for (let i = 0; i < PALETTE_SIZE; i++) {
+                const t = i / PALETTE_SIZE;
+
+                // Create smooth cycling through the three neon colors
+                // Using multiple sine waves for smooth interpolation
+                const phase1 = Math.sin(t * Math.PI * 2);
+                const phase2 = Math.sin(t * Math.PI * 2 + Math.PI * 2 / 3);
+                const phase3 = Math.sin(t * Math.PI * 2 + Math.PI * 4 / 3);
+
+                // Normalize phases to 0-1 range
+                const w1 = (phase1 + 1) * 0.5;
+                const w2 = (phase2 + 1) * 0.5;
+                const w3 = (phase3 + 1) * 0.5;
+
+                // Mix colors with smooth transitions
+                const total = w1 + w2 + w3;
+                const n1 = w1 / total;
+                const n2 = w2 / total;
+                const n3 = w3 / total;
+
+                palette[i * 3] = Math.floor(NEON_PINK.r * n1 + NEON_CYAN.r * n2 + NEON_MAGENTA.r * n3);
+                palette[i * 3 + 1] = Math.floor(NEON_PINK.g * n1 + NEON_CYAN.g * n2 + NEON_MAGENTA.g * n3);
+                palette[i * 3 + 2] = Math.floor(NEON_PINK.b * n1 + NEON_CYAN.b * n2 + NEON_MAGENTA.b * n3);
+            }
+        }
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+
+            plasmaWidth = Math.ceil(width / PLASMA_SCALE);
+            plasmaHeight = Math.ceil(height / PLASMA_SCALE);
+
+            imageData = ctx.createImageData(plasmaWidth, plasmaHeight);
+        }
+
+        // Time variable for animation
+        let time = 0;
+
+        function calculatePlasma(x, y, t) {
+            // Multiple overlapping sine functions for classic plasma effect
+            // Each component creates a different pattern that interferes with others
+
+            const cx = plasmaWidth / 2;
+            const cy = plasmaHeight / 2;
+
+            // Horizontal sine wave
+            let value = fastSin(x * 0.05 + t);
+
+            // Vertical sine wave
+            value += fastSin(y * 0.05 + t * 0.7);
+
+            // Diagonal wave
+            value += fastSin((x + y) * 0.03 + t * 0.5);
+
+            // Circular pattern from center
+            const dx1 = x - cx;
+            const dy1 = y - cy;
+            const dist1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+            value += fastSin(dist1 * 0.05 - t * 0.8);
+
+            // Second circular pattern (offset center)
+            const dx2 = x - cx * 0.5;
+            const dy2 = y - cy * 1.5;
+            const dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+            value += fastSin(dist2 * 0.07 + t * 0.6);
+
+            // Third circular pattern (another offset)
+            const dx3 = x - cx * 1.5;
+            const dy3 = y - cy * 0.7;
+            const dist3 = Math.sqrt(dx3 * dx3 + dy3 * dy3);
+            value += fastSin(dist3 * 0.04 - t * 0.4);
+
+            // Complex wave interference
+            value += fastSin(x * 0.02 + y * 0.03 + t * 0.9);
+            value += fastSin(x * 0.03 - y * 0.02 + t * 1.1);
+
+            // Morphing pattern
+            value += fastSin(x * 0.04 * fastSin(t * 0.3) + y * 0.04 * fastSin(t * 0.2));
+
+            // Normalize to 0-1 range (we have 9 sine functions, each -1 to 1)
+            value = (value + 9) / 18;
+
+            return value;
+        }
+
+        function render() {
+            const data = imageData.data;
+
+            for (let y = 0; y < plasmaHeight; y++) {
+                for (let x = 0; x < plasmaWidth; x++) {
+                    // Calculate plasma value with color cycling
+                    const plasma = calculatePlasma(x, y, time);
+
+                    // Add time-based palette cycling for flowing colors
+                    const colorIndex = Math.floor((plasma + time * 0.1) * PALETTE_SIZE) % PALETTE_SIZE;
+                    const absIndex = colorIndex < 0 ? colorIndex + PALETTE_SIZE : colorIndex;
+
+                    const pixelIndex = (y * plasmaWidth + x) * 4;
+                    data[pixelIndex] = palette[absIndex * 3];
+                    data[pixelIndex + 1] = palette[absIndex * 3 + 1];
+                    data[pixelIndex + 2] = palette[absIndex * 3 + 2];
+                    data[pixelIndex + 3] = 255;
+                }
+            }
+
+            // Draw the small plasma image
+            ctx.putImageData(imageData, 0, 0);
+
+            // Scale up to fill canvas with pixelated effect
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(canvas, 0, 0, plasmaWidth, plasmaHeight, 0, 0, width, height);
+        }
+
+        function animate(timestamp) {
+            // Smooth time progression for 60fps
+            time = timestamp * 0.001;
+
+            render();
+            requestAnimationFrame(animate);
+        }
+
+        // Initialize
+        generatePalette();
+        resize();
+        window.addEventListener('resize', resize);
+
+        // Start animation
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>

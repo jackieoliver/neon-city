@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Noise Fabric // Digital Texture Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            color: #00ffff;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        #ui {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(10, 10, 20, 0.85);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            padding: 20px;
+            border-radius: 4px;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.1),
+                        inset 0 0 20px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+            min-width: 280px;
+        }
+
+        h1 {
+            font-size: 14px;
+            font-weight: normal;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            margin-bottom: 20px;
+            background: linear-gradient(90deg, #ff00ff, #00ffff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            font-size: 10px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: rgba(0, 255, 255, 0.6);
+            margin-bottom: 8px;
+        }
+
+        .noise-buttons {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            background: rgba(0, 255, 255, 0.1);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+            color: #00ffff;
+            padding: 8px 12px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 2px;
+        }
+
+        button:hover {
+            background: rgba(0, 255, 255, 0.2);
+            border-color: #00ffff;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
+        }
+
+        button.active {
+            background: linear-gradient(135deg, rgba(255, 0, 255, 0.3), rgba(0, 255, 255, 0.3));
+            border-color: #ff00ff;
+            box-shadow: 0 0 20px rgba(255, 0, 255, 0.4);
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 4px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: rgba(0, 255, 255, 0.2);
+            border-radius: 2px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 14px;
+            height: 14px;
+            background: linear-gradient(135deg, #ff00ff, #00ffff);
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(255, 0, 255, 0.5);
+        }
+
+        .value-display {
+            font-size: 10px;
+            color: rgba(255, 0, 255, 0.8);
+            text-align: right;
+            margin-top: 4px;
+        }
+
+        #stats {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            font-size: 10px;
+            letter-spacing: 1px;
+            color: rgba(0, 255, 255, 0.5);
+            z-index: 100;
+        }
+
+        #instructions {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            font-size: 10px;
+            letter-spacing: 1px;
+            color: rgba(255, 0, 255, 0.5);
+            text-align: right;
+            z-index: 100;
+        }
+
+        .color-preset-buttons {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+
+        .color-btn {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            padding: 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .color-btn.active::after {
+            content: '';
+            position: absolute;
+            inset: 3px;
+            border: 2px solid white;
+            border-radius: 50%;
+        }
+
+        #neon-glow {
+            background: linear-gradient(135deg, #ff00ff, #00ffff);
+        }
+        #fire-ice {
+            background: linear-gradient(135deg, #ff4400, #00aaff);
+        }
+        #toxic {
+            background: linear-gradient(135deg, #00ff00, #ff00ff);
+        }
+        #sunset {
+            background: linear-gradient(135deg, #ff6600, #ff0066, #6600ff);
+        }
+        #ocean {
+            background: linear-gradient(135deg, #0066ff, #00ffcc, #003366);
+        }
+        #mono {
+            background: linear-gradient(135deg, #ffffff, #000000);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div id="ui">
+        <h1>Noise Fabric</h1>
+
+        <div class="control-group">
+            <label>Noise Algorithm</label>
+            <div class="noise-buttons">
+                <button id="btn-perlin" class="active">Perlin</button>
+                <button id="btn-simplex">Simplex</button>
+                <button id="btn-worley">Worley</button>
+                <button id="btn-ridged">Ridged</button>
+                <button id="btn-fbm">FBM</button>
+                <button id="btn-turbulence">Turbulence</button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Color Palette</label>
+            <div class="color-preset-buttons">
+                <button id="neon-glow" class="color-btn active" title="Neon Glow"></button>
+                <button id="fire-ice" class="color-btn" title="Fire & Ice"></button>
+                <button id="toxic" class="color-btn" title="Toxic"></button>
+                <button id="sunset" class="color-btn" title="Sunset"></button>
+                <button id="ocean" class="color-btn" title="Ocean"></button>
+                <button id="mono" class="color-btn" title="Monochrome"></button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Scale</label>
+            <input type="range" id="scale" min="0.5" max="5" step="0.1" value="2">
+            <div class="value-display" id="scale-val">2.0</div>
+        </div>
+
+        <div class="control-group">
+            <label>Speed</label>
+            <input type="range" id="speed" min="0" max="2" step="0.05" value="0.5">
+            <div class="value-display" id="speed-val">0.5</div>
+        </div>
+
+        <div class="control-group">
+            <label>Octaves</label>
+            <input type="range" id="octaves" min="1" max="8" step="1" value="4">
+            <div class="value-display" id="octaves-val">4</div>
+        </div>
+
+        <div class="control-group">
+            <label>Lacunarity</label>
+            <input type="range" id="lacunarity" min="1.5" max="3" step="0.1" value="2">
+            <div class="value-display" id="lacunarity-val">2.0</div>
+        </div>
+
+        <div class="control-group">
+            <label>Persistence</label>
+            <input type="range" id="persistence" min="0.2" max="0.8" step="0.05" value="0.5">
+            <div class="value-display" id="persistence-val">0.5</div>
+        </div>
+    </div>
+
+    <div id="stats">
+        FPS: <span id="fps">0</span> |
+        POS: <span id="pos">0, 0</span>
+    </div>
+
+    <div id="instructions">
+        Drag to pan // Scroll to zoom<br>
+        Space to pause // R to reset
+    </div>
+
+    <script>
+        // ============================================
+        // NOISE FABRIC - Digital Texture Generator
+        // ============================================
+
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // State
+        let width, height;
+        let imageData, pixels;
+        let time = 0;
+        let paused = false;
+        let offsetX = 0, offsetY = 0;
+        let zoom = 1;
+        let isDragging = false;
+        let lastMouseX, lastMouseY;
+
+        // Settings
+        let noiseType = 'perlin';
+        let scale = 2;
+        let speed = 0.5;
+        let octaves = 4;
+        let lacunarity = 2;
+        let persistence = 0.5;
+
+        // FPS tracking
+        let frameCount = 0;
+        let lastFpsUpdate = performance.now();
+        let currentFps = 0;
+
+        // Color palettes
+        const palettes = {
+            'neon-glow': [
+                [10, 0, 20],
+                [80, 0, 120],
+                [255, 0, 255],
+                [0, 255, 255],
+                [255, 255, 255]
+            ],
+            'fire-ice': [
+                [0, 0, 30],
+                [0, 80, 150],
+                [100, 0, 50],
+                [255, 100, 0],
+                [255, 255, 200]
+            ],
+            'toxic': [
+                [0, 10, 0],
+                [0, 80, 20],
+                [0, 255, 100],
+                [200, 0, 255],
+                [255, 255, 255]
+            ],
+            'sunset': [
+                [20, 0, 40],
+                [100, 0, 100],
+                [255, 50, 100],
+                [255, 150, 50],
+                [255, 255, 150]
+            ],
+            'ocean': [
+                [0, 10, 30],
+                [0, 50, 100],
+                [0, 150, 180],
+                [100, 255, 220],
+                [255, 255, 255]
+            ],
+            'mono': [
+                [0, 0, 0],
+                [40, 40, 50],
+                [100, 100, 120],
+                [180, 180, 200],
+                [255, 255, 255]
+            ]
+        };
+
+        let currentPalette = 'neon-glow';
+
+        // ============================================
+        // NOISE FUNCTIONS
+        // ============================================
+
+        // Permutation table for noise
+        const perm = new Uint8Array(512);
+        const grad3 = [
+            [1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],
+            [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],
+            [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]
+        ];
+
+        function initPermutation() {
+            const p = new Uint8Array(256);
+            for (let i = 0; i < 256; i++) p[i] = i;
+            for (let i = 255; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [p[i], p[j]] = [p[j], p[i]];
+            }
+            for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+        }
+
+        function fade(t) {
+            return t * t * t * (t * (t * 6 - 15) + 10);
+        }
+
+        function lerp(a, b, t) {
+            return a + t * (b - a);
+        }
+
+        function dot3(g, x, y, z) {
+            return g[0] * x + g[1] * y + g[2] * z;
+        }
+
+        // Classic Perlin noise 3D
+        function perlinNoise(x, y, z) {
+            const X = Math.floor(x) & 255;
+            const Y = Math.floor(y) & 255;
+            const Z = Math.floor(z) & 255;
+
+            x -= Math.floor(x);
+            y -= Math.floor(y);
+            z -= Math.floor(z);
+
+            const u = fade(x);
+            const v = fade(y);
+            const w = fade(z);
+
+            const A = perm[X] + Y;
+            const AA = perm[A] + Z;
+            const AB = perm[A + 1] + Z;
+            const B = perm[X + 1] + Y;
+            const BA = perm[B] + Z;
+            const BB = perm[B + 1] + Z;
+
+            const gradAA = grad3[perm[AA] % 12];
+            const gradBA = grad3[perm[BA] % 12];
+            const gradAB = grad3[perm[AB] % 12];
+            const gradBB = grad3[perm[BB] % 12];
+            const gradAA1 = grad3[perm[AA + 1] % 12];
+            const gradBA1 = grad3[perm[BA + 1] % 12];
+            const gradAB1 = grad3[perm[AB + 1] % 12];
+            const gradBB1 = grad3[perm[BB + 1] % 12];
+
+            return lerp(
+                lerp(
+                    lerp(dot3(gradAA, x, y, z), dot3(gradBA, x - 1, y, z), u),
+                    lerp(dot3(gradAB, x, y - 1, z), dot3(gradBB, x - 1, y - 1, z), u),
+                    v
+                ),
+                lerp(
+                    lerp(dot3(gradAA1, x, y, z - 1), dot3(gradBA1, x - 1, y, z - 1), u),
+                    lerp(dot3(gradAB1, x, y - 1, z - 1), dot3(gradBB1, x - 1, y - 1, z - 1), u),
+                    v
+                ),
+                w
+            );
+        }
+
+        // Simplex noise 3D (simplified)
+        const F3 = 1.0 / 3.0;
+        const G3 = 1.0 / 6.0;
+
+        function simplexNoise(x, y, z) {
+            const s = (x + y + z) * F3;
+            const i = Math.floor(x + s);
+            const j = Math.floor(y + s);
+            const k = Math.floor(z + s);
+
+            const t = (i + j + k) * G3;
+            const X0 = i - t;
+            const Y0 = j - t;
+            const Z0 = k - t;
+            const x0 = x - X0;
+            const y0 = y - Y0;
+            const z0 = z - Z0;
+
+            let i1, j1, k1;
+            let i2, j2, k2;
+
+            if (x0 >= y0) {
+                if (y0 >= z0) { i1=1; j1=0; k1=0; i2=1; j2=1; k2=0; }
+                else if (x0 >= z0) { i1=1; j1=0; k1=0; i2=1; j2=0; k2=1; }
+                else { i1=0; j1=0; k1=1; i2=1; j2=0; k2=1; }
+            } else {
+                if (y0 < z0) { i1=0; j1=0; k1=1; i2=0; j2=1; k2=1; }
+                else if (x0 < z0) { i1=0; j1=1; k1=0; i2=0; j2=1; k2=1; }
+                else { i1=0; j1=1; k1=0; i2=1; j2=1; k2=0; }
+            }
+
+            const x1 = x0 - i1 + G3;
+            const y1 = y0 - j1 + G3;
+            const z1 = z0 - k1 + G3;
+            const x2 = x0 - i2 + 2.0 * G3;
+            const y2 = y0 - j2 + 2.0 * G3;
+            const z2 = z0 - k2 + 2.0 * G3;
+            const x3 = x0 - 1.0 + 3.0 * G3;
+            const y3 = y0 - 1.0 + 3.0 * G3;
+            const z3 = z0 - 1.0 + 3.0 * G3;
+
+            const ii = i & 255;
+            const jj = j & 255;
+            const kk = k & 255;
+
+            let n = 0;
+
+            let t0 = 0.6 - x0*x0 - y0*y0 - z0*z0;
+            if (t0 > 0) {
+                t0 *= t0;
+                const gi0 = perm[ii + perm[jj + perm[kk]]] % 12;
+                n += t0 * t0 * dot3(grad3[gi0], x0, y0, z0);
+            }
+
+            let t1 = 0.6 - x1*x1 - y1*y1 - z1*z1;
+            if (t1 > 0) {
+                t1 *= t1;
+                const gi1 = perm[ii + i1 + perm[jj + j1 + perm[kk + k1]]] % 12;
+                n += t1 * t1 * dot3(grad3[gi1], x1, y1, z1);
+            }
+
+            let t2 = 0.6 - x2*x2 - y2*y2 - z2*z2;
+            if (t2 > 0) {
+                t2 *= t2;
+                const gi2 = perm[ii + i2 + perm[jj + j2 + perm[kk + k2]]] % 12;
+                n += t2 * t2 * dot3(grad3[gi2], x2, y2, z2);
+            }
+
+            let t3 = 0.6 - x3*x3 - y3*y3 - z3*z3;
+            if (t3 > 0) {
+                t3 *= t3;
+                const gi3 = perm[ii + 1 + perm[jj + 1 + perm[kk + 1]]] % 12;
+                n += t3 * t3 * dot3(grad3[gi3], x3, y3, z3);
+            }
+
+            return 32.0 * n;
+        }
+
+        // Worley/Cellular noise
+        function hash3(x, y, z) {
+            let h = x * 374761393 + y * 668265263 + z * 1274126177;
+            h = (h ^ (h >> 13)) * 1274126177;
+            return h;
+        }
+
+        function worleyNoise(x, y, z) {
+            const ix = Math.floor(x);
+            const iy = Math.floor(y);
+            const iz = Math.floor(z);
+
+            let minDist = 999;
+            let minDist2 = 999;
+
+            for (let dx = -1; dx <= 1; dx++) {
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dz = -1; dz <= 1; dz++) {
+                        const cx = ix + dx;
+                        const cy = iy + dy;
+                        const cz = iz + dz;
+
+                        const h = hash3(cx, cy, cz);
+                        const px = cx + ((h & 0xFF) / 255.0);
+                        const py = cy + (((h >> 8) & 0xFF) / 255.0);
+                        const pz = cz + (((h >> 16) & 0xFF) / 255.0);
+
+                        const dist = Math.sqrt(
+                            (x - px) * (x - px) +
+                            (y - py) * (y - py) +
+                            (z - pz) * (z - pz)
+                        );
+
+                        if (dist < minDist) {
+                            minDist2 = minDist;
+                            minDist = dist;
+                        } else if (dist < minDist2) {
+                            minDist2 = dist;
+                        }
+                    }
+                }
+            }
+
+            // Return edge pattern
+            return (minDist2 - minDist) * 2 - 1;
+        }
+
+        // FBM (Fractal Brownian Motion)
+        function fbmNoise(x, y, z, baseNoise) {
+            let value = 0;
+            let amplitude = 1;
+            let frequency = 1;
+            let maxValue = 0;
+
+            for (let i = 0; i < octaves; i++) {
+                value += amplitude * baseNoise(x * frequency, y * frequency, z * frequency);
+                maxValue += amplitude;
+                amplitude *= persistence;
+                frequency *= lacunarity;
+            }
+
+            return value / maxValue;
+        }
+
+        // Ridged noise
+        function ridgedNoise(x, y, z) {
+            let value = 0;
+            let amplitude = 1;
+            let frequency = 1;
+            let weight = 1;
+
+            for (let i = 0; i < octaves; i++) {
+                let signal = perlinNoise(x * frequency, y * frequency, z * frequency);
+                signal = 1 - Math.abs(signal);
+                signal *= signal;
+                signal *= weight;
+                weight = Math.min(1, Math.max(0, signal * 2));
+                value += signal * amplitude;
+                amplitude *= persistence;
+                frequency *= lacunarity;
+            }
+
+            return value * 1.25 - 1;
+        }
+
+        // Turbulence noise
+        function turbulenceNoise(x, y, z) {
+            let value = 0;
+            let amplitude = 1;
+            let frequency = 1;
+            let maxValue = 0;
+
+            for (let i = 0; i < octaves; i++) {
+                value += amplitude * Math.abs(perlinNoise(x * frequency, y * frequency, z * frequency));
+                maxValue += amplitude;
+                amplitude *= persistence;
+                frequency *= lacunarity;
+            }
+
+            return (value / maxValue) * 2 - 1;
+        }
+
+        // Get noise based on type
+        function getNoise(x, y, z) {
+            switch (noiseType) {
+                case 'perlin':
+                    return fbmNoise(x, y, z, perlinNoise);
+                case 'simplex':
+                    return fbmNoise(x, y, z, simplexNoise);
+                case 'worley':
+                    return worleyNoise(x, y, z);
+                case 'ridged':
+                    return ridgedNoise(x, y, z);
+                case 'fbm':
+                    return fbmNoise(x, y, z, perlinNoise);
+                case 'turbulence':
+                    return turbulenceNoise(x, y, z);
+                default:
+                    return perlinNoise(x, y, z);
+            }
+        }
+
+        // ============================================
+        // COLOR MAPPING
+        // ============================================
+
+        function getColor(value) {
+            const palette = palettes[currentPalette];
+            const t = (value + 1) * 0.5; // Map -1..1 to 0..1
+            const idx = t * (palette.length - 1);
+            const i = Math.floor(idx);
+            const f = idx - i;
+
+            const c1 = palette[Math.min(i, palette.length - 1)];
+            const c2 = palette[Math.min(i + 1, palette.length - 1)];
+
+            return [
+                Math.round(c1[0] + (c2[0] - c1[0]) * f),
+                Math.round(c1[1] + (c2[1] - c1[1]) * f),
+                Math.round(c1[2] + (c2[2] - c1[2]) * f)
+            ];
+        }
+
+        // ============================================
+        // RENDERING
+        // ============================================
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            imageData = ctx.createImageData(width, height);
+            pixels = imageData.data;
+        }
+
+        function render() {
+            const baseScale = scale * 0.003 / zoom;
+            const timeOffset = time * speed;
+
+            // Render at half resolution for performance on large screens
+            const step = width > 1200 ? 2 : 1;
+
+            for (let y = 0; y < height; y += step) {
+                for (let x = 0; x < width; x += step) {
+                    const nx = (x - width * 0.5 + offsetX) * baseScale;
+                    const ny = (y - height * 0.5 + offsetY) * baseScale;
+
+                    const value = getNoise(nx, ny, timeOffset);
+                    const [r, g, b] = getColor(value);
+
+                    // Set pixel (and neighbors if stepping)
+                    for (let dy = 0; dy < step; dy++) {
+                        for (let dx = 0; dx < step; dx++) {
+                            const px = x + dx;
+                            const py = y + dy;
+                            if (px < width && py < height) {
+                                const idx = (py * width + px) * 4;
+                                pixels[idx] = r;
+                                pixels[idx + 1] = g;
+                                pixels[idx + 2] = b;
+                                pixels[idx + 3] = 255;
+                            }
+                        }
+                    }
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+
+            // Add subtle scanlines
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.03)';
+            for (let y = 0; y < height; y += 3) {
+                ctx.fillRect(0, y, width, 1);
+            }
+        }
+
+        function animate() {
+            if (!paused) {
+                time += 0.016;
+            }
+
+            render();
+
+            // FPS counter
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsUpdate >= 1000) {
+                currentFps = frameCount;
+                frameCount = 0;
+                lastFpsUpdate = now;
+                document.getElementById('fps').textContent = currentFps;
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // ============================================
+        // EVENT HANDLERS
+        // ============================================
+
+        function setupControls() {
+            // Noise type buttons
+            const noiseButtons = document.querySelectorAll('.noise-buttons button');
+            noiseButtons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    noiseButtons.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    noiseType = btn.id.replace('btn-', '');
+                });
+            });
+
+            // Color palette buttons
+            const colorButtons = document.querySelectorAll('.color-btn');
+            colorButtons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    colorButtons.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    currentPalette = btn.id;
+                });
+            });
+
+            // Sliders
+            const sliders = [
+                { id: 'scale', variable: 'scale', display: 'scale-val', decimals: 1 },
+                { id: 'speed', variable: 'speed', display: 'speed-val', decimals: 2 },
+                { id: 'octaves', variable: 'octaves', display: 'octaves-val', decimals: 0 },
+                { id: 'lacunarity', variable: 'lacunarity', display: 'lacunarity-val', decimals: 1 },
+                { id: 'persistence', variable: 'persistence', display: 'persistence-val', decimals: 2 }
+            ];
+
+            sliders.forEach(slider => {
+                const input = document.getElementById(slider.id);
+                const display = document.getElementById(slider.display);
+
+                input.addEventListener('input', () => {
+                    const val = parseFloat(input.value);
+                    window[slider.variable] = val;
+                    display.textContent = val.toFixed(slider.decimals);
+
+                    // Update global variables
+                    if (slider.variable === 'scale') scale = val;
+                    if (slider.variable === 'speed') speed = val;
+                    if (slider.variable === 'octaves') octaves = Math.round(val);
+                    if (slider.variable === 'lacunarity') lacunarity = val;
+                    if (slider.variable === 'persistence') persistence = val;
+                });
+            });
+        }
+
+        function setupInteraction() {
+            // Mouse drag to pan
+            canvas.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    offsetX -= (e.clientX - lastMouseX) / zoom;
+                    offsetY -= (e.clientY - lastMouseY) / zoom;
+                    lastMouseX = e.clientX;
+                    lastMouseY = e.clientY;
+                }
+                document.getElementById('pos').textContent =
+                    `${Math.round(offsetX)}, ${Math.round(offsetY)}`;
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+
+            canvas.addEventListener('mouseleave', () => {
+                isDragging = false;
+            });
+
+            // Scroll to zoom
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? 0.9 : 1.1;
+                zoom = Math.max(0.1, Math.min(10, zoom * delta));
+            });
+
+            // Touch support
+            let lastTouchDist = 0;
+
+            canvas.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    isDragging = true;
+                    lastMouseX = e.touches[0].clientX;
+                    lastMouseY = e.touches[0].clientY;
+                } else if (e.touches.length === 2) {
+                    const dx = e.touches[0].clientX - e.touches[1].clientX;
+                    const dy = e.touches[0].clientY - e.touches[1].clientY;
+                    lastTouchDist = Math.sqrt(dx * dx + dy * dy);
+                }
+            });
+
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                if (e.touches.length === 1 && isDragging) {
+                    offsetX -= (e.touches[0].clientX - lastMouseX) / zoom;
+                    offsetY -= (e.touches[0].clientY - lastMouseY) / zoom;
+                    lastMouseX = e.touches[0].clientX;
+                    lastMouseY = e.touches[0].clientY;
+                } else if (e.touches.length === 2) {
+                    const dx = e.touches[0].clientX - e.touches[1].clientX;
+                    const dy = e.touches[0].clientY - e.touches[1].clientY;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    zoom *= dist / lastTouchDist;
+                    zoom = Math.max(0.1, Math.min(10, zoom));
+                    lastTouchDist = dist;
+                }
+            });
+
+            canvas.addEventListener('touchend', () => {
+                isDragging = false;
+            });
+
+            // Keyboard
+            document.addEventListener('keydown', (e) => {
+                if (e.code === 'Space') {
+                    e.preventDefault();
+                    paused = !paused;
+                } else if (e.code === 'KeyR') {
+                    offsetX = 0;
+                    offsetY = 0;
+                    zoom = 1;
+                    time = 0;
+                }
+            });
+        }
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+
+        function init() {
+            initPermutation();
+            resize();
+            setupControls();
+            setupInteraction();
+            animate();
+        }
+
+        window.addEventListener('resize', resize);
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>

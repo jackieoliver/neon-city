@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEON CITY // 2087</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #ui {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: #0ff;
+            font-size: 12px;
+            text-shadow: 0 0 10px #0ff;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        #coords {
+            opacity: 0.7;
+        }
+
+        #title {
+            font-size: 18px;
+            letter-spacing: 4px;
+            margin-bottom: 5px;
+            animation: flicker 3s infinite;
+        }
+
+        @keyframes flicker {
+            0%, 90%, 100% { opacity: 1; }
+            91%, 93%, 95% { opacity: 0.4; }
+            92%, 94% { opacity: 0.8; }
+        }
+
+        #instructions {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: #f0f;
+            font-size: 11px;
+            text-shadow: 0 0 8px #f0f;
+            opacity: 0.6;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div id="title">NEON CITY // 2087</div>
+        <div id="coords">SECTOR 0-0</div>
+    </div>
+    <div id="instructions">WASD / ARROWS to explore</div>
+    <canvas id="city"></canvas>
+
+    <script>
+    (function() {
+        'use strict';
+
+        const canvas = document.getElementById('city');
+        const ctx = canvas.getContext('2d');
+        const coordsEl = document.getElementById('coords');
+
+        let W, H;
+        let camera = { x: 0, y: 0 };
+        let targetCamera = { x: 0, y: 0 };
+        const keys = {};
+        const MOVE_SPEED = 8;
+        const CAMERA_SMOOTH = 0.08;
+
+        // Procedural seed
+        function hash(x, y) {
+            let h = x * 374761393 + y * 668265263;
+            h = (h ^ (h >> 13)) * 1274126177;
+            return h ^ (h >> 16);
+        }
+
+        function seededRandom(seed) {
+            const x = Math.sin(seed) * 10000;
+            return x - Math.floor(x);
+        }
+
+        // Color palettes
+        const neonColors = [
+            '#ff00ff', '#00ffff', '#ff0066', '#00ff66', '#ffff00',
+            '#ff3300', '#0066ff', '#ff00aa', '#00ffaa', '#ff6600'
+        ];
+
+        const windowColors = [
+            '#ffcc00', '#00ffff', '#ff00ff', '#ffffff', '#ff6600',
+            '#00ff00', '#ff0066', '#6600ff'
+        ];
+
+        // Building cache
+        const buildingCache = new Map();
+        const CHUNK_SIZE = 400;
+
+        // Rain particles
+        const rainDrops = [];
+        const NUM_RAIN = 800;
+
+        // Fog particles
+        const fogLayers = [];
+        const NUM_FOG = 60;
+
+        // Initialize
+        function init() {
+            resize();
+            window.addEventListener('resize', resize);
+            window.addEventListener('keydown', e => {
+                keys[e.key.toLowerCase()] = true;
+                if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(e.key.toLowerCase())) {
+                    e.preventDefault();
+                }
+            });
+            window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+            // Initialize rain
+            for (let i = 0; i < NUM_RAIN; i++) {
+                rainDrops.push({
+                    x: Math.random() * 2000 - 500,
+                    y: Math.random() * 2000 - 500,
+                    speed: 15 + Math.random() * 10,
+                    length: 10 + Math.random() * 20,
+                    opacity: 0.1 + Math.random() * 0.3
+                });
+            }
+
+            // Initialize fog
+            for (let i = 0; i < NUM_FOG; i++) {
+                fogLayers.push({
+                    x: Math.random() * 3000 - 500,
+                    y: Math.random() * H,
+                    width: 200 + Math.random() * 400,
+                    height: 30 + Math.random() * 60,
+                    speed: 0.2 + Math.random() * 0.5,
+                    opacity: 0.03 + Math.random() * 0.05,
+                    parallax: 0.1 + Math.random() * 0.3
+                });
+            }
+
+            requestAnimationFrame(loop);
+        }
+
+        function resize() {
+            W = canvas.width = window.innerWidth;
+            H = canvas.height = window.innerHeight;
+        }
+
+        // Generate building data for a chunk
+        function generateChunk(chunkX, chunkY) {
+            const key = `${chunkX},${chunkY}`;
+            if (buildingCache.has(key)) return buildingCache.get(key);
+
+            const buildings = [];
+            const baseX = chunkX * CHUNK_SIZE;
+            const baseY = chunkY * CHUNK_SIZE;
+            const seed = hash(chunkX, chunkY);
+
+            // Ground level buildings
+            const numBuildings = 3 + Math.floor(seededRandom(seed) * 4);
+
+            for (let i = 0; i < numBuildings; i++) {
+                const bSeed = hash(seed, i);
+                const x = baseX + seededRandom(bSeed) * CHUNK_SIZE * 0.8;
+                const width = 60 + seededRandom(bSeed + 1) * 120;
+                const height = 150 + seededRandom(bSeed + 2) * 400;
+                const baseLevel = 0;
+
+                buildings.push(createBuilding(x, baseLevel, width, height, bSeed));
+
+                // Stacked buildings (vertical density)
+                if (seededRandom(bSeed + 10) > 0.4) {
+                    const stackSeed = hash(bSeed, 100);
+                    const stackWidth = width * (0.5 + seededRandom(stackSeed) * 0.4);
+                    const stackHeight = 80 + seededRandom(stackSeed + 1) * 200;
+                    const stackX = x + (width - stackWidth) * seededRandom(stackSeed + 2);
+                    buildings.push(createBuilding(stackX, -height, stackWidth, stackHeight, stackSeed));
+
+                    // Third level stacking
+                    if (seededRandom(bSeed + 20) > 0.6) {
+                        const stack2Seed = hash(stackSeed, 200);
+                        const stack2Width = stackWidth * (0.4 + seededRandom(stack2Seed) * 0.4);
+                        const stack2Height = 50 + seededRandom(stack2Seed + 1) * 120;
+                        const stack2X = stackX + (stackWidth - stack2Width) * seededRandom(stack2Seed + 2);
+                        buildings.push(createBuilding(stack2X, -height - stackHeight, stack2Width, stack2Height, stack2Seed));
+                    }
+                }
+            }
+
+            // Sky bridges
+            const bridges = [];
+            if (buildings.length >= 2 && seededRandom(seed + 500) > 0.3) {
+                const bridgeSeed = hash(seed, 500);
+                const numBridges = 1 + Math.floor(seededRandom(bridgeSeed) * 3);
+
+                for (let b = 0; b < numBridges; b++) {
+                    const bSeed = hash(bridgeSeed, b);
+                    bridges.push({
+                        y: -(100 + seededRandom(bSeed) * 300),
+                        height: 8 + seededRandom(bSeed + 1) * 15,
+                        color: neonColors[Math.floor(seededRandom(bSeed + 2) * neonColors.length)],
+                        flicker: seededRandom(bSeed + 3) > 0.7
+                    });
+                }
+            }
+
+            const chunk = { buildings, bridges };
+            buildingCache.set(key, chunk);
+            return chunk;
+        }
+
+        function createBuilding(x, baseY, width, height, seed) {
+            const floors = Math.floor(height / 25);
+            const windowsPerFloor = Math.floor(width / 20);
+            const windows = [];
+
+            // Generate windows
+            for (let f = 0; f < floors; f++) {
+                for (let w = 0; w < windowsPerFloor; w++) {
+                    const wSeed = hash(seed + f, w);
+                    if (seededRandom(wSeed) > 0.3) {
+                        windows.push({
+                            fx: w,
+                            fy: f,
+                            lit: seededRandom(wSeed + 1) > 0.4,
+                            color: windowColors[Math.floor(seededRandom(wSeed + 2) * windowColors.length)],
+                            flicker: seededRandom(wSeed + 3) > 0.85,
+                            flickerSpeed: 0.05 + seededRandom(wSeed + 4) * 0.15
+                        });
+                    }
+                }
+            }
+
+            // Neon signs
+            const signs = [];
+            if (seededRandom(seed + 100) > 0.5 && width > 80) {
+                const signTexts = ['BAR', 'HOTEL', 'OPEN', 'CLUB', 'RAMEN', 'ARCADE', 'CYBER', 'NEON', 'TECH', '24H', 'DINER', 'GUNS', 'MEDS'];
+                const numSigns = 1 + Math.floor(seededRandom(seed + 101) * 2);
+
+                for (let s = 0; s < numSigns; s++) {
+                    const sSeed = hash(seed + 100, s);
+                    signs.push({
+                        text: signTexts[Math.floor(seededRandom(sSeed) * signTexts.length)],
+                        x: seededRandom(sSeed + 1) * (width - 60) + 10,
+                        y: seededRandom(sSeed + 2) * (height * 0.6) + height * 0.1,
+                        color: neonColors[Math.floor(seededRandom(sSeed + 3) * neonColors.length)],
+                        flicker: true,
+                        flickerPhase: seededRandom(sSeed + 4) * Math.PI * 2,
+                        flickerSpeed: 2 + seededRandom(sSeed + 5) * 8,
+                        size: 14 + seededRandom(sSeed + 6) * 10,
+                        vertical: seededRandom(sSeed + 7) > 0.7
+                    });
+                }
+            }
+
+            // Antennas and details
+            const details = [];
+            if (seededRandom(seed + 200) > 0.4) {
+                const numAntennas = 1 + Math.floor(seededRandom(seed + 201) * 4);
+                for (let a = 0; a < numAntennas; a++) {
+                    const aSeed = hash(seed + 200, a);
+                    details.push({
+                        type: 'antenna',
+                        x: seededRandom(aSeed) * width,
+                        height: 20 + seededRandom(aSeed + 1) * 50,
+                        hasLight: seededRandom(aSeed + 2) > 0.5,
+                        lightColor: seededRandom(aSeed + 3) > 0.5 ? '#ff0000' : '#00ff00'
+                    });
+                }
+            }
+
+            // AC units
+            if (seededRandom(seed + 300) > 0.3) {
+                const numAC = Math.floor(seededRandom(seed + 301) * 6);
+                for (let a = 0; a < numAC; a++) {
+                    const aSeed = hash(seed + 300, a);
+                    details.push({
+                        type: 'ac',
+                        x: seededRandom(aSeed) > 0.5 ? -15 : width + 5,
+                        y: seededRandom(aSeed + 1) * height * 0.8
+                    });
+                }
+            }
+
+            return {
+                x, baseY, width, height, seed,
+                windows, signs, details,
+                baseColor: `hsl(${220 + seededRandom(seed) * 40}, ${10 + seededRandom(seed + 1) * 20}%, ${8 + seededRandom(seed + 2) * 8}%)`,
+                edgeColor: neonColors[Math.floor(seededRandom(seed + 50) * neonColors.length)],
+                hasEdgeGlow: seededRandom(seed + 51) > 0.7
+            };
+        }
+
+        // Draw functions
+        function drawBackground() {
+            // Gradient sky
+            const gradient = ctx.createLinearGradient(0, 0, 0, H);
+            gradient.addColorStop(0, '#0a0010');
+            gradient.addColorStop(0.3, '#150525');
+            gradient.addColorStop(0.6, '#1a0a2e');
+            gradient.addColorStop(1, '#0d0d1a');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, W, H);
+
+            // Distant city silhouette (parallax layer 1 - very slow)
+            const parallax1 = camera.x * 0.05;
+            ctx.fillStyle = '#0a0515';
+            for (let i = -2; i < W / 100 + 3; i++) {
+                const x = (i * 100 - (parallax1 % 100));
+                const h = 50 + Math.sin(i * 0.7 + parallax1 * 0.001) * 30 + Math.cos(i * 1.3) * 20;
+                ctx.fillRect(x, H - h - 200, 80, h);
+            }
+
+            // Mid-distance buildings (parallax layer 2)
+            const parallax2 = camera.x * 0.15;
+            ctx.fillStyle = '#12081f';
+            for (let i = -2; i < W / 80 + 3; i++) {
+                const x = (i * 80 - (parallax2 % 80));
+                const h = 100 + Math.sin(i * 0.5 + parallax2 * 0.002) * 50 + Math.cos(i * 0.8) * 30;
+                ctx.fillRect(x, H - h - 100, 60, h);
+
+                // Random lit windows in background
+                if (Math.sin(i * 3.7 + Date.now() * 0.001) > 0.7) {
+                    ctx.fillStyle = '#ffcc00';
+                    ctx.globalAlpha = 0.3;
+                    ctx.fillRect(x + 10, H - h - 80, 4, 4);
+                    ctx.fillRect(x + 25, H - h - 60, 4, 4);
+                    ctx.globalAlpha = 1;
+                    ctx.fillStyle = '#12081f';
+                }
+            }
+        }
+
+        function drawBuilding(building, time) {
+            const screenX = building.x - camera.x;
+            const screenY = H - building.height + building.baseY + camera.y * 0.3;
+
+            // Skip if off screen
+            if (screenX + building.width < -50 || screenX > W + 50) return;
+            if (screenY > H + 50 || screenY + building.height < -50) return;
+
+            // Building body
+            ctx.fillStyle = building.baseColor;
+            ctx.fillRect(screenX, screenY, building.width, building.height);
+
+            // Building edges
+            ctx.strokeStyle = '#1a1a2e';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(screenX, screenY, building.width, building.height);
+
+            // Edge glow
+            if (building.hasEdgeGlow) {
+                ctx.strokeStyle = building.edgeColor;
+                ctx.globalAlpha = 0.3 + Math.sin(time * 2 + building.seed) * 0.1;
+                ctx.lineWidth = 1;
+                ctx.strokeRect(screenX + 1, screenY + 1, building.width - 2, 2);
+                ctx.globalAlpha = 1;
+            }
+
+            // Windows
+            const windowWidth = 8;
+            const windowHeight = 12;
+            const windowSpacingX = building.width / (Math.floor(building.width / 20) + 1);
+            const windowSpacingY = 25;
+
+            building.windows.forEach(win => {
+                const wx = screenX + 10 + win.fx * windowSpacingX;
+                const wy = screenY + 15 + win.fy * windowSpacingY;
+
+                if (win.lit) {
+                    let alpha = 0.8;
+                    if (win.flicker) {
+                        alpha = 0.4 + Math.sin(time * win.flickerSpeed * 10 + win.fx * win.fy) * 0.4;
+                        if (Math.random() > 0.99) alpha = 0.1;
+                    }
+
+                    // Window glow
+                    ctx.globalAlpha = alpha * 0.3;
+                    ctx.fillStyle = win.color;
+                    ctx.fillRect(wx - 2, wy - 2, windowWidth + 4, windowHeight + 4);
+
+                    // Window
+                    ctx.globalAlpha = alpha;
+                    ctx.fillRect(wx, wy, windowWidth, windowHeight);
+                    ctx.globalAlpha = 1;
+                } else {
+                    ctx.fillStyle = '#0a0a12';
+                    ctx.fillRect(wx, wy, windowWidth, windowHeight);
+                }
+            });
+
+            // Neon signs
+            building.signs.forEach(sign => {
+                const sx = screenX + sign.x;
+                const sy = screenY + sign.y;
+
+                let alpha = 0.9;
+                if (sign.flicker) {
+                    const flick = Math.sin(time * sign.flickerSpeed + sign.flickerPhase);
+                    alpha = 0.5 + flick * 0.4;
+
+                    // Occasional full flicker off
+                    const majorFlicker = Math.sin(time * 0.5 + sign.flickerPhase * 2);
+                    if (majorFlicker > 0.95) alpha = 0.1;
+                    if (majorFlicker > 0.9 && majorFlicker < 0.92) alpha = 0;
+                }
+
+                ctx.save();
+                ctx.font = `bold ${sign.size}px "Courier New", monospace`;
+
+                if (sign.vertical) {
+                    ctx.translate(sx, sy);
+                    ctx.rotate(Math.PI / 2);
+
+                    // Glow
+                    ctx.globalAlpha = alpha * 0.5;
+                    ctx.fillStyle = sign.color;
+                    ctx.shadowColor = sign.color;
+                    ctx.shadowBlur = 20;
+                    ctx.fillText(sign.text, 0, 0);
+
+                    // Text
+                    ctx.globalAlpha = alpha;
+                    ctx.shadowBlur = 10;
+                    ctx.fillText(sign.text, 0, 0);
+                } else {
+                    // Glow
+                    ctx.globalAlpha = alpha * 0.5;
+                    ctx.fillStyle = sign.color;
+                    ctx.shadowColor = sign.color;
+                    ctx.shadowBlur = 20;
+                    ctx.fillText(sign.text, sx, sy);
+
+                    // Text
+                    ctx.globalAlpha = alpha;
+                    ctx.shadowBlur = 10;
+                    ctx.fillText(sign.text, sx, sy);
+                }
+
+                ctx.restore();
+                ctx.shadowBlur = 0;
+                ctx.globalAlpha = 1;
+            });
+
+            // Details (antennas, AC units)
+            building.details.forEach(detail => {
+                if (detail.type === 'antenna') {
+                    const ax = screenX + detail.x;
+                    const ay = screenY;
+
+                    ctx.strokeStyle = '#2a2a3a';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(ax, ay);
+                    ctx.lineTo(ax, ay - detail.height);
+                    ctx.stroke();
+
+                    if (detail.hasLight) {
+                        const blink = Math.sin(time * 3) > 0.5;
+                        if (blink) {
+                            ctx.fillStyle = detail.lightColor;
+                            ctx.shadowColor = detail.lightColor;
+                            ctx.shadowBlur = 10;
+                            ctx.beginPath();
+                            ctx.arc(ax, ay - detail.height, 3, 0, Math.PI * 2);
+                            ctx.fill();
+                            ctx.shadowBlur = 0;
+                        }
+                    }
+                } else if (detail.type === 'ac') {
+                    const ax = screenX + detail.x;
+                    const ay = screenY + detail.y;
+
+                    ctx.fillStyle = '#1a1a2a';
+                    ctx.fillRect(ax, ay, 12, 10);
+                    ctx.fillStyle = '#0a0a15';
+                    ctx.fillRect(ax + 2, ay + 2, 8, 3);
+                }
+            });
+        }
+
+        function drawBridge(bridge, chunkX, time) {
+            const baseX = chunkX * CHUNK_SIZE;
+            const screenX1 = baseX - camera.x;
+            const screenX2 = baseX + CHUNK_SIZE - camera.x;
+            const screenY = H + bridge.y + camera.y * 0.3;
+
+            if (screenY < -50 || screenY > H + 50) return;
+            if (screenX2 < -50 || screenX1 > W + 50) return;
+
+            let alpha = 0.8;
+            if (bridge.flicker) {
+                alpha = 0.5 + Math.sin(time * 4 + chunkX) * 0.3;
+            }
+
+            // Bridge structure
+            ctx.fillStyle = '#1a1a2a';
+            ctx.fillRect(screenX1, screenY, CHUNK_SIZE, bridge.height);
+
+            // Railing glow
+            ctx.globalAlpha = alpha * 0.6;
+            ctx.fillStyle = bridge.color;
+            ctx.shadowColor = bridge.color;
+            ctx.shadowBlur = 15;
+            ctx.fillRect(screenX1, screenY, CHUNK_SIZE, 2);
+            ctx.fillRect(screenX1, screenY + bridge.height - 2, CHUNK_SIZE, 2);
+
+            // Support cables
+            ctx.strokeStyle = bridge.color;
+            ctx.lineWidth = 1;
+            ctx.globalAlpha = alpha * 0.4;
+            for (let i = 0; i < CHUNK_SIZE; i += 40) {
+                ctx.beginPath();
+                ctx.moveTo(screenX1 + i, screenY);
+                ctx.lineTo(screenX1 + i + 20, screenY - 30);
+                ctx.stroke();
+            }
+
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 1;
+        }
+
+        function drawRain(time) {
+            ctx.strokeStyle = '#6688aa';
+            ctx.lineWidth = 1;
+
+            rainDrops.forEach(drop => {
+                const screenX = drop.x - (camera.x * 0.8) % 2000;
+                const screenY = drop.y;
+
+                ctx.globalAlpha = drop.opacity;
+                ctx.beginPath();
+                ctx.moveTo(screenX, screenY);
+                ctx.lineTo(screenX - 2, screenY + drop.length);
+                ctx.stroke();
+
+                // Update rain position
+                drop.y += drop.speed;
+                drop.x -= 2;
+
+                if (drop.y > H + 50) {
+                    drop.y = -50;
+                    drop.x = Math.random() * 2000 - 500;
+                }
+            });
+
+            ctx.globalAlpha = 1;
+        }
+
+        function drawFog(time) {
+            fogLayers.forEach(fog => {
+                const screenX = fog.x - (camera.x * fog.parallax) % 3000;
+                const screenY = fog.y + Math.sin(time * 0.5 + fog.x * 0.01) * 10;
+
+                const gradient = ctx.createRadialGradient(
+                    screenX + fog.width / 2, screenY + fog.height / 2, 0,
+                    screenX + fog.width / 2, screenY + fog.height / 2, fog.width / 2
+                );
+                gradient.addColorStop(0, `rgba(100, 80, 120, ${fog.opacity})`);
+                gradient.addColorStop(1, 'rgba(100, 80, 120, 0)');
+
+                ctx.fillStyle = gradient;
+                ctx.fillRect(screenX, screenY, fog.width, fog.height);
+
+                // Move fog
+                fog.x += fog.speed;
+                if (fog.x > camera.x + W + 500) {
+                    fog.x = camera.x - 500;
+                }
+            });
+        }
+
+        function drawGroundFog() {
+            // Dense fog at ground level
+            const gradient = ctx.createLinearGradient(0, H - 100, 0, H);
+            gradient.addColorStop(0, 'rgba(20, 10, 30, 0)');
+            gradient.addColorStop(0.5, 'rgba(30, 20, 50, 0.3)');
+            gradient.addColorStop(1, 'rgba(40, 30, 60, 0.6)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, H - 100, W, 100);
+        }
+
+        function drawVignette() {
+            // Vignette effect
+            const gradient = ctx.createRadialGradient(W/2, H/2, H * 0.3, W/2, H/2, H);
+            gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.5)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, W, H);
+        }
+
+        function drawScanlines() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+            for (let y = 0; y < H; y += 4) {
+                ctx.fillRect(0, y, W, 2);
+            }
+        }
+
+        // Main loop
+        function loop(timestamp) {
+            const time = timestamp * 0.001;
+
+            // Handle input
+            if (keys['w'] || keys['arrowup']) targetCamera.y += MOVE_SPEED;
+            if (keys['s'] || keys['arrowdown']) targetCamera.y -= MOVE_SPEED;
+            if (keys['a'] || keys['arrowleft']) targetCamera.x -= MOVE_SPEED;
+            if (keys['d'] || keys['arrowright']) targetCamera.x += MOVE_SPEED;
+
+            // Smooth camera
+            camera.x += (targetCamera.x - camera.x) * CAMERA_SMOOTH;
+            camera.y += (targetCamera.y - camera.y) * CAMERA_SMOOTH;
+
+            // Clamp vertical movement
+            targetCamera.y = Math.max(-800, Math.min(200, targetCamera.y));
+
+            // Update UI
+            const sectorX = Math.floor(camera.x / 1000);
+            const sectorY = Math.floor(-camera.y / 500);
+            coordsEl.textContent = `SECTOR ${sectorX}-${sectorY} // X:${Math.floor(camera.x)} Y:${Math.floor(-camera.y)}`;
+
+            // Clear
+            ctx.clearRect(0, 0, W, H);
+
+            // Draw background layers
+            drawBackground();
+
+            // Determine visible chunks
+            const startChunk = Math.floor((camera.x - 200) / CHUNK_SIZE) - 1;
+            const endChunk = Math.floor((camera.x + W + 200) / CHUNK_SIZE) + 1;
+
+            // Collect all buildings from visible chunks
+            const allBuildings = [];
+            const allBridges = [];
+
+            for (let cx = startChunk; cx <= endChunk; cx++) {
+                for (let cy = -2; cy <= 1; cy++) {
+                    const chunk = generateChunk(cx, cy);
+                    chunk.buildings.forEach(b => allBuildings.push(b));
+                    chunk.bridges.forEach(br => allBridges.push({ ...br, chunkX: cx }));
+                }
+            }
+
+            // Sort buildings by Y (back to front)
+            allBuildings.sort((a, b) => (a.baseY - a.height) - (b.baseY - b.height));
+
+            // Draw buildings
+            allBuildings.forEach(building => drawBuilding(building, time));
+
+            // Draw bridges
+            allBridges.forEach(bridge => drawBridge(bridge, bridge.chunkX, time));
+
+            // Draw fog layers
+            drawFog(time);
+
+            // Draw rain
+            drawRain(time);
+
+            // Draw ground fog
+            drawGroundFog();
+
+            // Post-processing
+            drawVignette();
+            drawScanlines();
+
+            requestAnimationFrame(loop);
+        }
+
+        // Start
+        init();
+    })();
+    </script>
+</body>
+</html>

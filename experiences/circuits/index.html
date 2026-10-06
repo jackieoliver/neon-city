@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Circuit Board</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .overlay {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: #05d9e8;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            pointer-events: none;
+            text-shadow: 0 0 10px #05d9e8;
+            opacity: 0.8;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ff2a6d;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            pointer-events: none;
+            text-shadow: 0 0 10px #ff2a6d;
+            opacity: 0.6;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 0.8; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="circuit"></canvas>
+    <div class="overlay">NEON CIRCUITS v2.0</div>
+    <div class="instructions">Click to regenerate circuit</div>
+
+    <script>
+        const canvas = document.getElementById('circuit');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+        let nodes = [];
+        let traces = [];
+        let pulses = [];
+        let components = [];
+        let gridSize = 30;
+        let lastTime = 0;
+
+        const colors = {
+            magenta: '#ff2a6d',
+            cyan: '#05d9e8',
+            green: '#00ff9f',
+            board: '#0d1117',
+            boardLight: '#161b22',
+            copper: '#1a1f26'
+        };
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            gridSize = Math.max(25, Math.min(40, Math.floor(Math.min(width, height) / 25)));
+        }
+
+        function random(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function randomInt(min, max) {
+            return Math.floor(random(min, max + 1));
+        }
+
+        function pick(arr) {
+            return arr[Math.floor(Math.random() * arr.length)];
+        }
+
+        function distance(a, b) {
+            return Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
+        }
+
+        class Node {
+            constructor(x, y, type) {
+                this.x = x;
+                this.y = y;
+                this.type = type; // 'junction', 'chip', 'capacitor', 'resistor', 'led'
+                this.connections = [];
+                this.glow = 0;
+                this.pulsePhase = random(0, Math.PI * 2);
+                this.size = type === 'chip' ? random(2, 4) : 1;
+                this.color = pick([colors.magenta, colors.cyan, colors.green]);
+                this.active = false;
+                this.activeTime = 0;
+            }
+
+            activate() {
+                this.active = true;
+                this.activeTime = 1;
+            }
+
+            update(dt) {
+                this.pulsePhase += dt * 2;
+                if (this.activeTime > 0) {
+                    this.activeTime -= dt * 2;
+                    if (this.activeTime <= 0) {
+                        this.active = false;
+                        this.activeTime = 0;
+                    }
+                }
+                this.glow = this.active ? 0.5 + Math.sin(this.pulsePhase * 3) * 0.3 : 0.1 + Math.sin(this.pulsePhase) * 0.05;
+            }
+
+            draw() {
+                const baseRadius = gridSize * 0.3 * this.size;
+
+                ctx.save();
+                ctx.translate(this.x, this.y);
+
+                // Outer glow
+                const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, baseRadius * 3);
+                gradient.addColorStop(0, this.color + Math.floor(this.glow * 80).toString(16).padStart(2, '0'));
+                gradient.addColorStop(1, 'transparent');
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(0, 0, baseRadius * 3, 0, Math.PI * 2);
+                ctx.fill();
+
+                switch (this.type) {
+                    case 'chip':
+                        this.drawChip(baseRadius);
+                        break;
+                    case 'capacitor':
+                        this.drawCapacitor(baseRadius);
+                        break;
+                    case 'resistor':
+                        this.drawResistor(baseRadius);
+                        break;
+                    case 'led':
+                        this.drawLED(baseRadius);
+                        break;
+                    default:
+                        this.drawJunction(baseRadius);
+                }
+
+                ctx.restore();
+            }
+
+            drawChip(radius) {
+                const w = radius * 2.5;
+                const h = radius * 1.8;
+
+                // Chip body
+                ctx.fillStyle = '#1a1a2e';
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 1;
+                ctx.fillRect(-w, -h, w * 2, h * 2);
+                ctx.strokeRect(-w, -h, w * 2, h * 2);
+
+                // Pins
+                const pinCount = Math.floor(w / 8);
+                for (let i = 0; i < pinCount; i++) {
+                    const px = -w + (i + 0.5) * (w * 2 / pinCount);
+                    ctx.fillStyle = colors.copper;
+                    ctx.fillRect(px - 2, -h - 6, 4, 6);
+                    ctx.fillRect(px - 2, h, 4, 6);
+                }
+
+                // Center marking
+                ctx.fillStyle = this.color + '40';
+                ctx.beginPath();
+                ctx.arc(-w + 8, -h + 8, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            drawCapacitor(radius) {
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 2;
+                ctx.fillStyle = '#1a1a2e';
+
+                ctx.beginPath();
+                ctx.arc(0, 0, radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                // Inner ring
+                ctx.beginPath();
+                ctx.arc(0, 0, radius * 0.6, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Center
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = this.glow;
+                ctx.beginPath();
+                ctx.arc(0, 0, radius * 0.3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+
+            drawResistor(radius) {
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 2;
+                ctx.fillStyle = '#1a1a2e';
+
+                // Body
+                ctx.fillRect(-radius * 1.5, -radius * 0.5, radius * 3, radius);
+                ctx.strokeRect(-radius * 1.5, -radius * 0.5, radius * 3, radius);
+
+                // Color bands
+                const bandColors = [colors.magenta, colors.cyan, colors.green];
+                for (let i = 0; i < 3; i++) {
+                    ctx.fillStyle = bandColors[i] + '80';
+                    ctx.fillRect(-radius + i * radius * 0.8, -radius * 0.5, radius * 0.2, radius);
+                }
+            }
+
+            drawLED(radius) {
+                // Dome shape
+                ctx.beginPath();
+                ctx.arc(0, 0, radius, 0, Math.PI * 2);
+
+                const ledGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, radius);
+                ledGrad.addColorStop(0, this.color);
+                ledGrad.addColorStop(0.5, this.color + '80');
+                ledGrad.addColorStop(1, this.color + '20');
+
+                ctx.fillStyle = ledGrad;
+                ctx.fill();
+
+                // Bright center when active
+                if (this.active) {
+                    ctx.beginPath();
+                    ctx.arc(0, 0, radius * 0.3, 0, Math.PI * 2);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fill();
+                }
+            }
+
+            drawJunction(radius) {
+                ctx.beginPath();
+                ctx.arc(0, 0, radius * 0.5, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = 0.3 + this.glow;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+
+                ctx.beginPath();
+                ctx.arc(0, 0, radius * 0.2, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+            }
+        }
+
+        class Trace {
+            constructor(start, end, color) {
+                this.start = start;
+                this.end = end;
+                this.color = color;
+                this.path = this.generatePath();
+                this.length = this.calculateLength();
+            }
+
+            generatePath() {
+                const path = [{ x: this.start.x, y: this.start.y }];
+                const dx = this.end.x - this.start.x;
+                const dy = this.end.y - this.start.y;
+
+                // Create manhattan-style paths with occasional 45-degree angles
+                if (Math.random() > 0.3) {
+                    // L-shaped or Z-shaped path
+                    if (Math.random() > 0.5) {
+                        // Horizontal first
+                        const midX = this.start.x + dx * random(0.3, 0.7);
+                        path.push({ x: midX, y: this.start.y });
+                        path.push({ x: midX, y: this.end.y });
+                    } else {
+                        // Vertical first
+                        const midY = this.start.y + dy * random(0.3, 0.7);
+                        path.push({ x: this.start.x, y: midY });
+                        path.push({ x: this.end.x, y: midY });
+                    }
+                } else {
+                    // 45-degree diagonal
+                    const diagDist = Math.min(Math.abs(dx), Math.abs(dy));
+                    if (Math.abs(dx) > Math.abs(dy)) {
+                        path.push({ x: this.start.x + Math.sign(dx) * diagDist, y: this.end.y });
+                    } else {
+                        path.push({ x: this.end.x, y: this.start.y + Math.sign(dy) * diagDist });
+                    }
+                }
+
+                path.push({ x: this.end.x, y: this.end.y });
+                return path;
+            }
+
+            calculateLength() {
+                let len = 0;
+                for (let i = 1; i < this.path.length; i++) {
+                    len += distance(this.path[i - 1], this.path[i]);
+                }
+                return len;
+            }
+
+            getPointAt(t) {
+                const targetDist = t * this.length;
+                let traveled = 0;
+
+                for (let i = 1; i < this.path.length; i++) {
+                    const segLen = distance(this.path[i - 1], this.path[i]);
+                    if (traveled + segLen >= targetDist) {
+                        const segT = (targetDist - traveled) / segLen;
+                        return {
+                            x: this.path[i - 1].x + (this.path[i].x - this.path[i - 1].x) * segT,
+                            y: this.path[i - 1].y + (this.path[i].y - this.path[i - 1].y) * segT
+                        };
+                    }
+                    traveled += segLen;
+                }
+
+                return this.path[this.path.length - 1];
+            }
+
+            draw() {
+                ctx.strokeStyle = this.color + '40';
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                ctx.beginPath();
+                ctx.moveTo(this.path[0].x, this.path[0].y);
+                for (let i = 1; i < this.path.length; i++) {
+                    ctx.lineTo(this.path[i].x, this.path[i].y);
+                }
+                ctx.stroke();
+
+                // Bright core
+                ctx.strokeStyle = this.color + '80';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            }
+        }
+
+        class Pulse {
+            constructor(trace, speed) {
+                this.trace = trace;
+                this.t = 0;
+                this.speed = speed || random(0.3, 0.8);
+                this.color = trace.color;
+                this.size = random(4, 8);
+                this.tail = [];
+                this.tailLength = randomInt(5, 15);
+            }
+
+            update(dt) {
+                // Store tail positions
+                const pos = this.trace.getPointAt(this.t);
+                this.tail.unshift({ ...pos, alpha: 1 });
+                if (this.tail.length > this.tailLength) {
+                    this.tail.pop();
+                }
+
+                // Update tail alphas
+                this.tail.forEach((p, i) => {
+                    p.alpha = 1 - i / this.tailLength;
+                });
+
+                this.t += dt * this.speed / this.trace.length * 100;
+
+                if (this.t >= 1) {
+                    // Activate end node
+                    this.trace.end.activate();
+                    return false;
+                }
+                return true;
+            }
+
+            draw() {
+                // Draw tail
+                this.tail.forEach((p, i) => {
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, this.size * p.alpha * 0.5, 0, Math.PI * 2);
+                    ctx.fillStyle = this.color + Math.floor(p.alpha * 150).toString(16).padStart(2, '0');
+                    ctx.fill();
+                });
+
+                // Draw head
+                const pos = this.trace.getPointAt(this.t);
+
+                // Outer glow
+                const gradient = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, this.size * 3);
+                gradient.addColorStop(0, this.color);
+                gradient.addColorStop(0.3, this.color + '80');
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, this.size * 3, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // Bright core
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, this.size * 0.5, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+            }
+        }
+
+        function generateCircuit() {
+            nodes = [];
+            traces = [];
+            pulses = [];
+
+            const cols = Math.floor(width / gridSize) - 2;
+            const rows = Math.floor(height / gridSize) - 2;
+            const grid = [];
+
+            // Initialize grid
+            for (let y = 0; y < rows; y++) {
+                grid[y] = [];
+                for (let x = 0; x < cols; x++) {
+                    grid[y][x] = null;
+                }
+            }
+
+            // Place large chips first
+            const chipCount = randomInt(3, 6);
+            for (let i = 0; i < chipCount; i++) {
+                const x = randomInt(2, cols - 4);
+                const y = randomInt(2, rows - 4);
+
+                if (!grid[y][x]) {
+                    const node = new Node(
+                        (x + 1.5) * gridSize,
+                        (y + 1.5) * gridSize,
+                        'chip'
+                    );
+                    nodes.push(node);
+                    grid[y][x] = node;
+                    // Mark surrounding cells as occupied
+                    for (let dy = -1; dy <= 1; dy++) {
+                        for (let dx = -1; dx <= 1; dx++) {
+                            if (grid[y + dy] && grid[y + dy][x + dx] === null) {
+                                grid[y + dy][x + dx] = 'blocked';
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Place components and junctions
+            const componentCount = randomInt(20, 40);
+            const types = ['junction', 'junction', 'junction', 'capacitor', 'resistor', 'led'];
+
+            for (let i = 0; i < componentCount; i++) {
+                const x = randomInt(1, cols - 2);
+                const y = randomInt(1, rows - 2);
+
+                if (!grid[y][x]) {
+                    const node = new Node(
+                        (x + 1.5) * gridSize,
+                        (y + 1.5) * gridSize,
+                        pick(types)
+                    );
+                    nodes.push(node);
+                    grid[y][x] = node;
+                }
+            }
+
+            // Connect nodes
+            const colorOptions = [colors.magenta, colors.cyan, colors.green];
+
+            nodes.forEach(node => {
+                // Find nearby nodes to connect to
+                const nearby = nodes.filter(other => {
+                    if (other === node) return false;
+                    const dist = distance(node, other);
+                    return dist < gridSize * 6 && dist > gridSize * 1.5;
+                });
+
+                // Connect to 1-3 nearby nodes
+                const connectCount = Math.min(nearby.length, randomInt(1, 3));
+                const shuffled = nearby.sort(() => Math.random() - 0.5);
+
+                for (let i = 0; i < connectCount; i++) {
+                    const other = shuffled[i];
+
+                    // Check if connection already exists
+                    const exists = traces.some(t =>
+                        (t.start === node && t.end === other) ||
+                        (t.start === other && t.end === node)
+                    );
+
+                    if (!exists) {
+                        const trace = new Trace(node, other, pick(colorOptions));
+                        traces.push(trace);
+                        node.connections.push(trace);
+                        other.connections.push(trace);
+                    }
+                }
+            });
+        }
+
+        function spawnPulse() {
+            if (traces.length === 0) return;
+
+            const trace = pick(traces);
+            const pulse = new Pulse(trace);
+            pulses.push(pulse);
+            trace.start.activate();
+        }
+
+        function drawBackground() {
+            // PCB base color
+            ctx.fillStyle = colors.board;
+            ctx.fillRect(0, 0, width, height);
+
+            // Grid pattern
+            ctx.strokeStyle = colors.boardLight;
+            ctx.lineWidth = 0.5;
+
+            for (let x = 0; x < width; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+
+            for (let y = 0; y < height; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+
+            // Via holes (decorative)
+            ctx.fillStyle = colors.copper;
+            for (let x = gridSize; x < width; x += gridSize * 3) {
+                for (let y = gridSize; y < height; y += gridSize * 3) {
+                    if (Math.random() > 0.7) {
+                        ctx.beginPath();
+                        ctx.arc(x, y, 2, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+            }
+        }
+
+        function animate(currentTime) {
+            const dt = Math.min((currentTime - lastTime) / 1000, 0.1);
+            lastTime = currentTime;
+
+            // Clear and draw background
+            drawBackground();
+
+            // Draw traces
+            traces.forEach(trace => trace.draw());
+
+            // Update and draw nodes
+            nodes.forEach(node => {
+                node.update(dt);
+                node.draw();
+            });
+
+            // Update and draw pulses
+            pulses = pulses.filter(pulse => {
+                const alive = pulse.update(dt);
+                if (alive) pulse.draw();
+                return alive;
+            });
+
+            // Spawn new pulses
+            if (Math.random() < 0.05) {
+                spawnPulse();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // Event listeners
+        window.addEventListener('resize', () => {
+            resize();
+            generateCircuit();
+        });
+
+        canvas.addEventListener('click', () => {
+            generateCircuit();
+            // Spawn a burst of pulses
+            for (let i = 0; i < 10; i++) {
+                setTimeout(() => spawnPulse(), i * 50);
+            }
+        });
+
+        // Initialize
+        resize();
+        generateCircuit();
+
+        // Initial pulse burst
+        for (let i = 0; i < 15; i++) {
+            setTimeout(() => spawnPulse(), i * 100);
+        }
+
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>

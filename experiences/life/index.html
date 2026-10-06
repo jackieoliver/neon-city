@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEON LIFE :: Conway's Game of Life</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+        }
+
+        #canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            z-index: 100;
+            background: rgba(10, 10, 15, 0.85);
+            padding: 15px 25px;
+            border-radius: 8px;
+            border: 1px solid rgba(5, 217, 232, 0.3);
+            box-shadow: 0 0 30px rgba(5, 217, 232, 0.15);
+        }
+
+        .btn {
+            background: transparent;
+            border: 2px solid #05d9e8;
+            color: #05d9e8;
+            padding: 10px 24px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn:hover {
+            background: rgba(5, 217, 232, 0.2);
+            box-shadow: 0 0 20px rgba(5, 217, 232, 0.5);
+        }
+
+        .btn.active {
+            background: #05d9e8;
+            color: #0a0a0f;
+        }
+
+        .btn.pink {
+            border-color: #ff2a6d;
+            color: #ff2a6d;
+        }
+
+        .btn.pink:hover {
+            background: rgba(255, 42, 109, 0.2);
+            box-shadow: 0 0 20px rgba(255, 42, 109, 0.5);
+        }
+
+        .btn.pink.active {
+            background: #ff2a6d;
+            color: #0a0a0f;
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: #05d9e8;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            text-shadow: 0 0 10px rgba(5, 217, 232, 0.5);
+            z-index: 100;
+        }
+
+        .stats span {
+            color: #ff2a6d;
+            text-shadow: 0 0 10px rgba(255, 42, 109, 0.5);
+        }
+
+        .title {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: #ff2a6d;
+            font-size: 24px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            text-shadow: 0 0 20px rgba(255, 42, 109, 0.7),
+                         0 0 40px rgba(255, 42, 109, 0.4);
+            z-index: 100;
+        }
+
+        .instructions {
+            position: fixed;
+            top: 60px;
+            left: 20px;
+            color: rgba(5, 217, 232, 0.5);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            z-index: 100;
+        }
+
+        select {
+            background: transparent;
+            border: 2px solid #05d9e8;
+            color: #05d9e8;
+            padding: 10px 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            outline: none;
+        }
+
+        select option {
+            background: #0a0a0f;
+            color: #05d9e8;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div class="title">NEON LIFE</div>
+
+    <div class="stats">
+        Generation: <span id="gen">0</span> |
+        Population: <span id="pop">0</span> |
+        FPS: <span id="fps">0</span>
+    </div>
+
+    <div class="instructions">
+        Click and drag to draw cells
+    </div>
+
+    <div class="controls">
+        <button class="btn pink active" id="playBtn">Play</button>
+        <button class="btn" id="clearBtn">Clear</button>
+        <button class="btn" id="randomBtn">Random</button>
+        <select id="schemeSelect">
+            <option value="neon">Neon Pulse</option>
+            <option value="plasma">Plasma Fire</option>
+            <option value="matrix">Matrix Green</option>
+            <option value="ocean">Deep Ocean</option>
+            <option value="sunset">Sunset Wave</option>
+        </select>
+        <select id="speedSelect">
+            <option value="1">Speed: Slow</option>
+            <option value="3" selected>Speed: Normal</option>
+            <option value="6">Speed: Fast</option>
+            <option value="12">Speed: Insane</option>
+        </select>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Configuration
+        const CELL_SIZE = 6;
+        const MAX_AGE = 60;
+
+        let width, height, cols, rows;
+        let grid, nextGrid, ageGrid;
+        let isPlaying = true;
+        let isDrawing = false;
+        let generation = 0;
+        let population = 0;
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 0;
+        let simulationSpeed = 3;
+        let frameSkip = 0;
+
+        // Color schemes with age-based gradients
+        const colorSchemes = {
+            neon: {
+                young: [255, 42, 109],      // #ff2a6d - hot pink
+                mature: [5, 217, 232],       // #05d9e8 - cyan
+                old: [138, 43, 226],         // violet
+                glow: 'rgba(255, 42, 109, 0.5)'
+            },
+            plasma: {
+                young: [255, 100, 0],        // orange
+                mature: [255, 0, 100],       // magenta
+                old: [100, 0, 255],          // purple
+                glow: 'rgba(255, 100, 0, 0.5)'
+            },
+            matrix: {
+                young: [0, 255, 100],        // bright green
+                mature: [0, 200, 80],        // medium green
+                old: [0, 100, 50],           // dark green
+                glow: 'rgba(0, 255, 100, 0.5)'
+            },
+            ocean: {
+                young: [0, 255, 255],        // cyan
+                mature: [0, 100, 255],       // blue
+                old: [50, 0, 150],           // deep purple
+                glow: 'rgba(0, 255, 255, 0.5)'
+            },
+            sunset: {
+                young: [255, 255, 0],        // yellow
+                mature: [255, 100, 0],       // orange
+                old: [255, 0, 50],           // red
+                glow: 'rgba(255, 200, 0, 0.5)'
+            }
+        };
+
+        let currentScheme = 'neon';
+
+        function init() {
+            resize();
+            createGrids();
+            randomize();
+            setupEventListeners();
+            animate();
+        }
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            cols = Math.floor(width / CELL_SIZE);
+            rows = Math.floor(height / CELL_SIZE);
+        }
+
+        function createGrids() {
+            grid = new Uint8Array(cols * rows);
+            nextGrid = new Uint8Array(cols * rows);
+            ageGrid = new Uint8Array(cols * rows);
+        }
+
+        function randomize() {
+            for (let i = 0; i < grid.length; i++) {
+                grid[i] = Math.random() > 0.85 ? 1 : 0;
+                ageGrid[i] = grid[i] ? 1 : 0;
+            }
+            generation = 0;
+        }
+
+        function clear() {
+            grid.fill(0);
+            nextGrid.fill(0);
+            ageGrid.fill(0);
+            generation = 0;
+        }
+
+        function getIndex(x, y) {
+            // Wrap around edges (toroidal)
+            x = (x + cols) % cols;
+            y = (y + rows) % rows;
+            return y * cols + x;
+        }
+
+        function countNeighbors(x, y) {
+            let count = 0;
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    if (dx === 0 && dy === 0) continue;
+                    count += grid[getIndex(x + dx, y + dy)];
+                }
+            }
+            return count;
+        }
+
+        function update() {
+            population = 0;
+
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    const idx = y * cols + x;
+                    const neighbors = countNeighbors(x, y);
+                    const alive = grid[idx];
+
+                    if (alive) {
+                        // Cell survives with 2 or 3 neighbors
+                        nextGrid[idx] = (neighbors === 2 || neighbors === 3) ? 1 : 0;
+                    } else {
+                        // Cell is born with exactly 3 neighbors
+                        nextGrid[idx] = (neighbors === 3) ? 1 : 0;
+                    }
+
+                    // Update age
+                    if (nextGrid[idx]) {
+                        if (alive) {
+                            ageGrid[idx] = Math.min(ageGrid[idx] + 1, MAX_AGE);
+                        } else {
+                            ageGrid[idx] = 1; // Newborn
+                        }
+                        population++;
+                    } else {
+                        ageGrid[idx] = 0;
+                    }
+                }
+            }
+
+            // Swap grids
+            [grid, nextGrid] = [nextGrid, grid];
+            generation++;
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        function getColorForAge(age) {
+            const scheme = colorSchemes[currentScheme];
+            const t = age / MAX_AGE;
+
+            let r, g, b;
+
+            if (t < 0.5) {
+                // Young to mature
+                const localT = t * 2;
+                r = lerp(scheme.young[0], scheme.mature[0], localT);
+                g = lerp(scheme.young[1], scheme.mature[1], localT);
+                b = lerp(scheme.young[2], scheme.mature[2], localT);
+            } else {
+                // Mature to old
+                const localT = (t - 0.5) * 2;
+                r = lerp(scheme.mature[0], scheme.old[0], localT);
+                g = lerp(scheme.mature[1], scheme.old[1], localT);
+                b = lerp(scheme.mature[2], scheme.old[2], localT);
+            }
+
+            return [Math.floor(r), Math.floor(g), Math.floor(b)];
+        }
+
+        function render() {
+            // Clear with slight fade for trail effect
+            ctx.fillStyle = 'rgba(10, 10, 15, 0.3)';
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw glow layer
+            ctx.globalCompositeOperation = 'lighter';
+
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    const idx = y * cols + x;
+                    if (!grid[idx]) continue;
+
+                    const age = ageGrid[idx];
+                    const [r, g, b] = getColorForAge(age);
+                    const px = x * CELL_SIZE;
+                    const py = y * CELL_SIZE;
+
+                    // Outer glow
+                    const glowSize = CELL_SIZE * 2;
+                    const gradient = ctx.createRadialGradient(
+                        px + CELL_SIZE / 2, py + CELL_SIZE / 2, 0,
+                        px + CELL_SIZE / 2, py + CELL_SIZE / 2, glowSize
+                    );
+                    gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.8)`);
+                    gradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, 0.2)`);
+                    gradient.addColorStop(1, 'transparent');
+
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(px - glowSize/2, py - glowSize/2, CELL_SIZE + glowSize, CELL_SIZE + glowSize);
+                }
+            }
+
+            // Draw cells
+            ctx.globalCompositeOperation = 'source-over';
+
+            for (let y = 0; y < rows; y++) {
+                for (let x = 0; x < cols; x++) {
+                    const idx = y * cols + x;
+                    if (!grid[idx]) continue;
+
+                    const age = ageGrid[idx];
+                    const [r, g, b] = getColorForAge(age);
+                    const px = x * CELL_SIZE;
+                    const py = y * CELL_SIZE;
+
+                    // Pulsing effect based on age
+                    const pulse = 0.8 + 0.2 * Math.sin(performance.now() * 0.005 + age * 0.5);
+
+                    ctx.fillStyle = `rgb(${Math.floor(r * pulse)}, ${Math.floor(g * pulse)}, ${Math.floor(b * pulse)})`;
+                    ctx.fillRect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+
+                    // Inner bright core
+                    ctx.fillStyle = `rgba(255, 255, 255, ${0.3 * pulse})`;
+                    ctx.fillRect(px + 2, py + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+                }
+            }
+
+            // Reset composite operation
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        function updateStats() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = now;
+            }
+
+            document.getElementById('gen').textContent = generation;
+            document.getElementById('pop').textContent = population;
+            document.getElementById('fps').textContent = fps;
+        }
+
+        function animate() {
+            if (isPlaying) {
+                frameSkip++;
+                if (frameSkip >= Math.floor(60 / (simulationSpeed * 10))) {
+                    update();
+                    frameSkip = 0;
+                }
+            }
+
+            render();
+            updateStats();
+            requestAnimationFrame(animate);
+        }
+
+        function getCellCoords(e) {
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((e.clientX - rect.left) / CELL_SIZE);
+            const y = Math.floor((e.clientY - rect.top) / CELL_SIZE);
+            return { x, y };
+        }
+
+        function drawCell(e) {
+            const { x, y } = getCellCoords(e);
+            if (x >= 0 && x < cols && y >= 0 && y < rows) {
+                const idx = y * cols + x;
+                grid[idx] = 1;
+                ageGrid[idx] = 1;
+
+                // Draw a small cluster for better visibility
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (Math.random() > 0.3) {
+                            const ni = getIndex(x + dx, y + dy);
+                            grid[ni] = 1;
+                            ageGrid[ni] = 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        function setupEventListeners() {
+            window.addEventListener('resize', () => {
+                const oldGrid = grid;
+                const oldAge = ageGrid;
+                const oldCols = cols;
+                const oldRows = rows;
+
+                resize();
+                createGrids();
+
+                // Copy old grid data
+                for (let y = 0; y < Math.min(oldRows, rows); y++) {
+                    for (let x = 0; x < Math.min(oldCols, cols); x++) {
+                        const oldIdx = y * oldCols + x;
+                        const newIdx = y * cols + x;
+                        grid[newIdx] = oldGrid[oldIdx];
+                        ageGrid[newIdx] = oldAge[oldIdx];
+                    }
+                }
+            });
+
+            canvas.addEventListener('mousedown', (e) => {
+                isDrawing = true;
+                drawCell(e);
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                if (isDrawing) {
+                    drawCell(e);
+                }
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isDrawing = false;
+            });
+
+            canvas.addEventListener('mouseleave', () => {
+                isDrawing = false;
+            });
+
+            // Touch support
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                isDrawing = true;
+                drawCell(e.touches[0]);
+            });
+
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                if (isDrawing) {
+                    drawCell(e.touches[0]);
+                }
+            });
+
+            canvas.addEventListener('touchend', () => {
+                isDrawing = false;
+            });
+
+            document.getElementById('playBtn').addEventListener('click', function() {
+                isPlaying = !isPlaying;
+                this.textContent = isPlaying ? 'Play' : 'Pause';
+                this.classList.toggle('active', isPlaying);
+            });
+
+            document.getElementById('clearBtn').addEventListener('click', clear);
+
+            document.getElementById('randomBtn').addEventListener('click', randomize);
+
+            document.getElementById('schemeSelect').addEventListener('change', function() {
+                currentScheme = this.value;
+            });
+
+            document.getElementById('speedSelect').addEventListener('change', function() {
+                simulationSpeed = parseInt(this.value);
+            });
+
+            // Keyboard shortcuts
+            document.addEventListener('keydown', (e) => {
+                switch(e.key.toLowerCase()) {
+                    case ' ':
+                        e.preventDefault();
+                        document.getElementById('playBtn').click();
+                        break;
+                    case 'c':
+                        clear();
+                        break;
+                    case 'r':
+                        randomize();
+                        break;
+                }
+            });
+        }
+
+        init();
+    </script>
+</body>
+</html>

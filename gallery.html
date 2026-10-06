@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEON CITY - Asset Gallery</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0a0a12 0%, #150a1a 50%, #0a0f1a 100%);
+            min-height: 100vh;
+            font-family: 'Courier New', monospace;
+            color: #e0e0e0;
+        }
+
+        .scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 0, 0, 0.1) 2px,
+                rgba(0, 0, 0, 0.1) 4px
+            );
+            z-index: 1000;
+        }
+
+        header {
+            text-align: center;
+            padding: 2rem;
+            background: rgba(0, 0, 0, 0.5);
+            border-bottom: 2px solid #ff2a6d;
+        }
+
+        h1 {
+            font-size: 2rem;
+            letter-spacing: 0.3em;
+            color: #ff2a6d;
+            text-shadow: 0 0 10px #ff2a6d, 0 0 20px #ff2a6d;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: #05d9e8;
+            font-size: 0.9rem;
+        }
+
+        nav {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            padding: 1rem;
+            flex-wrap: wrap;
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .nav-btn {
+            background: transparent;
+            border: 1px solid #05d9e8;
+            color: #05d9e8;
+            padding: 0.5rem 1rem;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .nav-btn:hover, .nav-btn.active {
+            background: rgba(5, 217, 232, 0.2);
+            box-shadow: 0 0 15px rgba(5, 217, 232, 0.3);
+        }
+
+        main {
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .category-section {
+            margin-bottom: 3rem;
+        }
+
+        .category-title {
+            font-size: 1.2rem;
+            color: #ff2a6d;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #333;
+        }
+
+        .asset-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .asset-card {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid #333;
+            padding: 1rem;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .asset-card:hover {
+            border-color: #05d9e8;
+            box-shadow: 0 0 20px rgba(5, 217, 232, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .asset-preview {
+            width: 100%;
+            aspect-ratio: 1;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 0.5rem;
+            image-rendering: pixelated;
+            overflow: hidden;
+        }
+
+        .asset-preview img {
+            max-width: 100%;
+            max-height: 100%;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        .asset-preview.placeholder {
+            border: 2px dashed #333;
+        }
+
+        .asset-name {
+            font-size: 0.8rem;
+            color: #05d9e8;
+            text-transform: uppercase;
+        }
+
+        .asset-status {
+            font-size: 0.7rem;
+            color: #666;
+            margin-top: 0.25rem;
+        }
+
+        .asset-status.generated {
+            color: #00ff9f;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 500;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: #0a0a12;
+            border: 2px solid #ff2a6d;
+            padding: 2rem;
+            max-width: 90%;
+            max-height: 90%;
+            text-align: center;
+        }
+
+        .modal-content img {
+            max-width: 100%;
+            max-height: 60vh;
+            image-rendering: pixelated;
+        }
+
+        .modal-title {
+            color: #ff2a6d;
+            margin-top: 1rem;
+            text-transform: uppercase;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            font-size: 2rem;
+            color: #ff2a6d;
+            cursor: pointer;
+        }
+
+        /* Generate section */
+        .generate-section {
+            text-align: center;
+            padding: 2rem;
+            background: rgba(0, 0, 0, 0.3);
+            margin: 2rem;
+            border: 1px solid #333;
+        }
+
+        .generate-btn {
+            background: linear-gradient(135deg, #ff2a6d, #d300c5);
+            border: none;
+            color: white;
+            padding: 1rem 2rem;
+            font-family: inherit;
+            font-size: 1rem;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            transition: all 0.2s;
+        }
+
+        .generate-btn:hover {
+            box-shadow: 0 0 30px rgba(255, 42, 109, 0.5);
+            transform: scale(1.02);
+        }
+
+        .generate-info {
+            margin-top: 1rem;
+            color: #666;
+            font-size: 0.8rem;
+        }
+
+        code {
+            background: rgba(5, 217, 232, 0.1);
+            padding: 0.2rem 0.5rem;
+            color: #05d9e8;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-top: 1rem;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            color: #ff2a6d;
+        }
+
+        .stat-label {
+            font-size: 0.7rem;
+            color: #666;
+            text-transform: uppercase;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem;
+            color: #666;
+        }
+
+        .empty-state h2 {
+            color: #ff2a6d;
+            margin-bottom: 1rem;
+        }
+
+        .links {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-top: 1rem;
+        }
+
+        .links a {
+            color: #05d9e8;
+            text-decoration: none;
+            border: 1px solid #05d9e8;
+            padding: 0.5rem 1rem;
+            transition: all 0.2s;
+        }
+
+        .links a:hover {
+            background: rgba(5, 217, 232, 0.2);
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: #444;
+            font-size: 0.8rem;
+            border-top: 1px solid #222;
+        }
+    </style>
+</head>
+<body>
+    <div class="scanlines"></div>
+
+    <header>
+        <h1>NEON CITY</h1>
+        <p class="subtitle">Asset Gallery</p>
+    </header>
+
+    <nav id="nav">
+        <button class="nav-btn active" data-filter="all">All</button>
+        <button class="nav-btn" data-filter="buildings">Buildings</button>
+        <button class="nav-btn" data-filter="signs">Signs</button>
+        <button class="nav-btn" data-filter="props">Props</button>
+        <button class="nav-btn" data-filter="backgrounds">Backgrounds</button>
+        <button class="nav-btn" data-filter="tiles">Tiles</button>
+    </nav>
+
+    <div class="generate-section">
+        <button class="generate-btn" onclick="showGenerateInfo()">Generate Assets</button>
+        <div class="generate-info">
+            Run in terminal: <code>python3 generate_assets.py</code>
+        </div>
+        <div class="stats" id="stats">
+            <div class="stat">
+                <div class="stat-value" id="stat-generated">0</div>
+                <div class="stat-label">Generated</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="stat-total">0</div>
+                <div class="stat-label">Total</div>
+            </div>
+        </div>
+    </div>
+
+    <main id="gallery"></main>
+
+    <div class="links">
+        <a href="index.html">Launch City</a>
+        <a href="#" onclick="loadAssets(); return false;">Refresh</a>
+    </div>
+
+    <footer>
+        <p>Generated with Gemini 2.0 Flash (Nano Banana Pro)</p>
+    </footer>
+
+    <div class="modal" id="modal" onclick="closeModal()">
+        <span class="modal-close">&times;</span>
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <img id="modal-img" src="" alt="">
+            <h3 class="modal-title" id="modal-title"></h3>
+        </div>
+    </div>
+
+    <script>
+        // Asset manifest (updated by generator)
+        const ASSET_MANIFEST = {
+            buildings: [
+                { name: "tower_neon_01", status: "pending" },
+                { name: "tower_industrial_01", status: "pending" },
+                { name: "apartment_block_01", status: "pending" },
+            ],
+            signs: [
+                { name: "neon_bar_01", status: "pending" },
+                { name: "neon_hotel_01", status: "pending" },
+                { name: "neon_ramen_01", status: "pending" },
+                { name: "hologram_ad_01", status: "pending" },
+            ],
+            props: [
+                { name: "vending_machine_01", status: "pending" },
+                { name: "trash_pile_01", status: "pending" },
+                { name: "street_vendor_01", status: "pending" },
+                { name: "hover_car_01", status: "pending" },
+            ],
+            backgrounds: [
+                { name: "skyline_layer_01", status: "pending" },
+                { name: "clouds_neon_01", status: "pending" },
+            ],
+            tiles: [
+                { name: "street_wet_01", status: "pending" },
+                { name: "building_wall_01", status: "pending" },
+            ],
+        };
+
+        let currentFilter = 'all';
+        let loadedAssets = {};
+
+        async function checkAssetExists(category, name) {
+            const extensions = ['png', 'svg'];
+            for (const ext of extensions) {
+                const url = `assets/${category}/${name}.${ext}`;
+                try {
+                    const response = await fetch(url, { method: 'HEAD' });
+                    if (response.ok) {
+                        return { exists: true, url, ext };
+                    }
+                } catch (e) {}
+            }
+            return { exists: false };
+        }
+
+        async function loadAssets() {
+            const gallery = document.getElementById('gallery');
+            gallery.innerHTML = '<p style="text-align:center;color:#666;">Loading assets...</p>';
+
+            let generated = 0;
+            let total = 0;
+
+            // Check each asset
+            for (const [category, assets] of Object.entries(ASSET_MANIFEST)) {
+                for (const asset of assets) {
+                    total++;
+                    const result = await checkAssetExists(category, asset.name);
+                    asset.status = result.exists ? 'generated' : 'pending';
+                    asset.url = result.url;
+                    if (result.exists) generated++;
+                }
+            }
+
+            // Update stats
+            document.getElementById('stat-generated').textContent = generated;
+            document.getElementById('stat-total').textContent = total;
+
+            renderGallery();
+        }
+
+        function renderGallery() {
+            const gallery = document.getElementById('gallery');
+            gallery.innerHTML = '';
+
+            for (const [category, assets] of Object.entries(ASSET_MANIFEST)) {
+                if (currentFilter !== 'all' && currentFilter !== category) continue;
+
+                const section = document.createElement('div');
+                section.className = 'category-section';
+                section.innerHTML = `<h2 class="category-title">${category}</h2>`;
+
+                const grid = document.createElement('div');
+                grid.className = 'asset-grid';
+
+                for (const asset of assets) {
+                    const card = document.createElement('div');
+                    card.className = 'asset-card';
+                    card.onclick = () => openModal(asset);
+
+                    const preview = document.createElement('div');
+                    preview.className = `asset-preview ${asset.status === 'pending' ? 'placeholder' : ''}`;
+
+                    if (asset.status === 'generated' && asset.url) {
+                        const img = document.createElement('img');
+                        img.src = asset.url;
+                        img.alt = asset.name;
+                        img.onerror = () => {
+                            preview.classList.add('placeholder');
+                            preview.innerHTML = '<span style="color:#333">?</span>';
+                        };
+                        preview.appendChild(img);
+                    } else {
+                        preview.innerHTML = '<span style="color:#333">?</span>';
+                    }
+
+                    card.innerHTML = `
+                        ${preview.outerHTML}
+                        <div class="asset-name">${asset.name}</div>
+                        <div class="asset-status ${asset.status}">${asset.status}</div>
+                    `;
+
+                    grid.appendChild(card);
+                }
+
+                section.appendChild(grid);
+                gallery.appendChild(section);
+            }
+
+            if (gallery.children.length === 0) {
+                gallery.innerHTML = `
+                    <div class="empty-state">
+                        <h2>No Assets Yet</h2>
+                        <p>Run the generator to create assets</p>
+                    </div>
+                `;
+            }
+        }
+
+        function openModal(asset) {
+            if (asset.status !== 'generated') return;
+
+            const modal = document.getElementById('modal');
+            document.getElementById('modal-img').src = asset.url;
+            document.getElementById('modal-title').textContent = asset.name;
+            modal.classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('modal').classList.remove('active');
+        }
+
+        function showGenerateInfo() {
+            alert('Run this command in your terminal:\n\npython3 generate_assets.py\n\nThis will generate assets using the Gemini API.');
+        }
+
+        // Nav filtering
+        document.getElementById('nav').addEventListener('click', (e) => {
+            if (e.target.classList.contains('nav-btn')) {
+                document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+                e.target.classList.add('active');
+                currentFilter = e.target.dataset.filter;
+                renderGallery();
+            }
+        });
+
+        // Keyboard
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+
+        // Initial load
+        loadAssets();
+    </script>
+</body>
+</html>

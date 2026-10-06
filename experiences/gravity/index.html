@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gravity Wells - Neon Particle Dance</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(5, 217, 232, 0.5);
+            z-index: 100;
+            transition: opacity 0.5s;
+        }
+
+        .instructions.hidden {
+            opacity: 0;
+        }
+
+        .controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 100;
+        }
+
+        .btn {
+            background: rgba(255, 42, 109, 0.2);
+            border: 1px solid rgba(255, 42, 109, 0.5);
+            color: #ff2a6d;
+            padding: 10px 20px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .btn:hover {
+            background: rgba(255, 42, 109, 0.4);
+            box-shadow: 0 0 20px rgba(255, 42, 109, 0.5);
+        }
+
+        .btn.active {
+            background: rgba(5, 217, 232, 0.2);
+            border-color: rgba(5, 217, 232, 0.5);
+            color: #05d9e8;
+        }
+
+        .btn.active:hover {
+            background: rgba(5, 217, 232, 0.4);
+            box-shadow: 0 0 20px rgba(5, 217, 232, 0.5);
+        }
+
+        .well-count {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div class="instructions" id="instructions">
+        Left click: Place attractor | Right click: Place repulsor | Scroll: Adjust strength
+    </div>
+
+    <div class="controls">
+        <button class="btn" id="clearWells">Clear Wells</button>
+        <button class="btn" id="toggleTrails">Trails: On</button>
+        <button class="btn" id="burstBtn">Burst</button>
+    </div>
+
+    <div class="well-count" id="wellCount">Wells: 0</div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+
+        // Colors
+        const PINK = '#ff2a6d';
+        const CYAN = '#05d9e8';
+        const PINK_RGB = { r: 255, g: 42, b: 109 };
+        const CYAN_RGB = { r: 5, g: 217, b: 232 };
+
+        // Configuration
+        const config = {
+            particleCount: 800,
+            trailLength: 20,
+            trailsEnabled: true,
+            gravityStrength: 0.5,
+            maxSpeed: 8,
+            friction: 0.999,
+            wellRadius: 150
+        };
+
+        // State
+        let particles = [];
+        let wells = [];
+        let mouseX = 0;
+        let mouseY = 0;
+        let lastTime = 0;
+
+        // Resize handler
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Particle class
+        class Particle {
+            constructor(x, y) {
+                this.x = x !== undefined ? x : Math.random() * width;
+                this.y = y !== undefined ? y : Math.random() * height;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = (Math.random() - 0.5) * 2;
+                this.trail = [];
+                this.color = Math.random() > 0.5 ? PINK : CYAN;
+                this.colorRGB = this.color === PINK ? PINK_RGB : CYAN_RGB;
+                this.size = Math.random() * 2 + 1;
+                this.life = 1;
+            }
+
+            update() {
+                // Store trail position
+                if (config.trailsEnabled) {
+                    this.trail.push({ x: this.x, y: this.y });
+                    if (this.trail.length > config.trailLength) {
+                        this.trail.shift();
+                    }
+                }
+
+                // Apply gravity from all wells
+                for (const well of wells) {
+                    const dx = well.x - this.x;
+                    const dy = well.y - this.y;
+                    const distSq = dx * dx + dy * dy;
+                    const dist = Math.sqrt(distSq);
+
+                    if (dist < 5) continue; // Avoid singularity
+
+                    // Gravitational force (inverse square with dampening)
+                    const force = (well.strength * config.gravityStrength) / (distSq * 0.001 + 100);
+                    const direction = well.isAttractor ? 1 : -1;
+
+                    this.vx += (dx / dist) * force * direction;
+                    this.vy += (dy / dist) * force * direction;
+                }
+
+                // Apply friction
+                this.vx *= config.friction;
+                this.vy *= config.friction;
+
+                // Limit speed
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (speed > config.maxSpeed) {
+                    this.vx = (this.vx / speed) * config.maxSpeed;
+                    this.vy = (this.vy / speed) * config.maxSpeed;
+                }
+
+                // Update position
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Wrap around edges
+                if (this.x < -50) this.x = width + 50;
+                if (this.x > width + 50) this.x = -50;
+                if (this.y < -50) this.y = height + 50;
+                if (this.y > height + 50) this.y = -50;
+            }
+
+            draw() {
+                // Draw trail
+                if (config.trailsEnabled && this.trail.length > 1) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.trail[0].x, this.trail[0].y);
+
+                    for (let i = 1; i < this.trail.length; i++) {
+                        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                    }
+                    ctx.lineTo(this.x, this.y);
+
+                    const gradient = ctx.createLinearGradient(
+                        this.trail[0].x, this.trail[0].y,
+                        this.x, this.y
+                    );
+                    gradient.addColorStop(0, `rgba(${this.colorRGB.r}, ${this.colorRGB.g}, ${this.colorRGB.b}, 0)`);
+                    gradient.addColorStop(1, `rgba(${this.colorRGB.r}, ${this.colorRGB.g}, ${this.colorRGB.b}, 0.6)`);
+
+                    ctx.strokeStyle = gradient;
+                    ctx.lineWidth = this.size * 0.5;
+                    ctx.lineCap = 'round';
+                    ctx.stroke();
+                }
+
+                // Draw particle
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+
+                // Glow effect
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
+                const glowGradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.size * 2
+                );
+                glowGradient.addColorStop(0, `rgba(${this.colorRGB.r}, ${this.colorRGB.g}, ${this.colorRGB.b}, 0.5)`);
+                glowGradient.addColorStop(1, `rgba(${this.colorRGB.r}, ${this.colorRGB.g}, ${this.colorRGB.b}, 0)`);
+                ctx.fillStyle = glowGradient;
+                ctx.fill();
+            }
+        }
+
+        // Gravity Well class
+        class GravityWell {
+            constructor(x, y, isAttractor = true) {
+                this.x = x;
+                this.y = y;
+                this.isAttractor = isAttractor;
+                this.strength = 50;
+                this.pulsePhase = Math.random() * Math.PI * 2;
+                this.color = isAttractor ? CYAN_RGB : PINK_RGB;
+                this.hexColor = isAttractor ? CYAN : PINK;
+            }
+
+            draw(time) {
+                const pulse = Math.sin(time * 0.003 + this.pulsePhase) * 0.3 + 0.7;
+                const radius = (this.strength * 0.5 + 20) * pulse;
+
+                // Outer glow
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, radius * 2
+                );
+                gradient.addColorStop(0, `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, 0.3)`);
+                gradient.addColorStop(0.5, `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, 0.1)`);
+                gradient.addColorStop(1, `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, 0)`);
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, radius * 2, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // Core
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 5 + pulse * 3, 0, Math.PI * 2);
+                ctx.fillStyle = this.hexColor;
+                ctx.fill();
+
+                // Ring indicator
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${0.3 * pulse})`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                // Direction indicator (+ for attractor, x for repulsor)
+                ctx.strokeStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, 0.8)`;
+                ctx.lineWidth = 2;
+
+                if (this.isAttractor) {
+                    // Plus sign
+                    ctx.beginPath();
+                    ctx.moveTo(this.x - 8, this.y);
+                    ctx.lineTo(this.x + 8, this.y);
+                    ctx.moveTo(this.x, this.y - 8);
+                    ctx.lineTo(this.x, this.y + 8);
+                    ctx.stroke();
+                } else {
+                    // X sign
+                    ctx.beginPath();
+                    ctx.moveTo(this.x - 6, this.y - 6);
+                    ctx.lineTo(this.x + 6, this.y + 6);
+                    ctx.moveTo(this.x + 6, this.y - 6);
+                    ctx.lineTo(this.x - 6, this.y + 6);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // Initialize particles
+        function initParticles() {
+            particles = [];
+            for (let i = 0; i < config.particleCount; i++) {
+                particles.push(new Particle());
+            }
+        }
+
+        // Burst effect
+        function burst() {
+            const count = 100;
+            for (let i = 0; i < count; i++) {
+                const angle = (i / count) * Math.PI * 2;
+                const p = new Particle(width / 2, height / 2);
+                p.vx = Math.cos(angle) * 5;
+                p.vy = Math.sin(angle) * 5;
+                particles.push(p);
+            }
+            // Limit particle count
+            while (particles.length > config.particleCount + 200) {
+                particles.shift();
+            }
+        }
+
+        // Find well at position
+        function getWellAtPosition(x, y) {
+            for (let i = wells.length - 1; i >= 0; i--) {
+                const well = wells[i];
+                const dx = well.x - x;
+                const dy = well.y - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < 30) {
+                    return { well, index: i };
+                }
+            }
+            return null;
+        }
+
+        // Update well count display
+        function updateWellCount() {
+            document.getElementById('wellCount').textContent = `Wells: ${wells.length}`;
+        }
+
+        // Animation loop
+        function animate(currentTime) {
+            const deltaTime = currentTime - lastTime;
+            lastTime = currentTime;
+
+            // Clear with fade effect for trails
+            if (config.trailsEnabled) {
+                ctx.fillStyle = 'rgba(10, 10, 15, 0.15)';
+            } else {
+                ctx.fillStyle = 'rgba(10, 10, 15, 1)';
+            }
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw background stars
+            drawStars(currentTime);
+
+            // Update and draw particles
+            for (const particle of particles) {
+                particle.update();
+                particle.draw();
+            }
+
+            // Draw wells
+            for (const well of wells) {
+                well.draw(currentTime);
+            }
+
+            // Draw connection lines between nearby wells
+            drawWellConnections(currentTime);
+
+            requestAnimationFrame(animate);
+        }
+
+        // Background stars
+        const stars = [];
+        for (let i = 0; i < 100; i++) {
+            stars.push({
+                x: Math.random() * 2000,
+                y: Math.random() * 2000,
+                size: Math.random() * 1.5,
+                twinkle: Math.random() * Math.PI * 2
+            });
+        }
+
+        function drawStars(time) {
+            for (const star of stars) {
+                const x = star.x % width;
+                const y = star.y % height;
+                const alpha = 0.3 + Math.sin(time * 0.002 + star.twinkle) * 0.2;
+
+                ctx.beginPath();
+                ctx.arc(x, y, star.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                ctx.fill();
+            }
+        }
+
+        function drawWellConnections(time) {
+            if (wells.length < 2) return;
+
+            for (let i = 0; i < wells.length; i++) {
+                for (let j = i + 1; j < wells.length; j++) {
+                    const w1 = wells[i];
+                    const w2 = wells[j];
+                    const dx = w2.x - w1.x;
+                    const dy = w2.y - w1.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < 300) {
+                        const alpha = (1 - dist / 300) * 0.3;
+                        const pulse = Math.sin(time * 0.002) * 0.5 + 0.5;
+
+                        ctx.beginPath();
+                        ctx.moveTo(w1.x, w1.y);
+                        ctx.lineTo(w2.x, w2.y);
+
+                        // Color based on well types
+                        if (w1.isAttractor === w2.isAttractor) {
+                            ctx.strokeStyle = w1.isAttractor
+                                ? `rgba(5, 217, 232, ${alpha * pulse})`
+                                : `rgba(255, 42, 109, ${alpha * pulse})`;
+                        } else {
+                            // Different types - purple blend
+                            ctx.strokeStyle = `rgba(180, 100, 200, ${alpha * pulse})`;
+                        }
+
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        // Event listeners
+        canvas.addEventListener('click', (e) => {
+            wells.push(new GravityWell(e.clientX, e.clientY, true));
+            updateWellCount();
+            hideInstructions();
+        });
+
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            wells.push(new GravityWell(e.clientX, e.clientY, false));
+            updateWellCount();
+            hideInstructions();
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            const wellData = getWellAtPosition(e.clientX, e.clientY);
+            if (wellData) {
+                e.preventDefault();
+                wellData.well.strength = Math.max(10, Math.min(200,
+                    wellData.well.strength - e.deltaY * 0.1
+                ));
+            }
+        }, { passive: false });
+
+        canvas.addEventListener('dblclick', (e) => {
+            const wellData = getWellAtPosition(e.clientX, e.clientY);
+            if (wellData) {
+                wells.splice(wellData.index, 1);
+                updateWellCount();
+            }
+        });
+
+        document.getElementById('clearWells').addEventListener('click', () => {
+            wells = [];
+            updateWellCount();
+        });
+
+        document.getElementById('toggleTrails').addEventListener('click', function() {
+            config.trailsEnabled = !config.trailsEnabled;
+            this.textContent = `Trails: ${config.trailsEnabled ? 'On' : 'Off'}`;
+            this.classList.toggle('active', config.trailsEnabled);
+
+            // Clear trails from particles
+            if (!config.trailsEnabled) {
+                for (const particle of particles) {
+                    particle.trail = [];
+                }
+            }
+        });
+
+        document.getElementById('burstBtn').addEventListener('click', burst);
+
+        // Hide instructions after first interaction
+        let instructionsHidden = false;
+        function hideInstructions() {
+            if (!instructionsHidden) {
+                document.getElementById('instructions').classList.add('hidden');
+                instructionsHidden = true;
+            }
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.key === ' ') {
+                e.preventDefault();
+                burst();
+            }
+            if (e.key === 'c' || e.key === 'C') {
+                wells = [];
+                updateWellCount();
+            }
+            if (e.key === 't' || e.key === 'T') {
+                document.getElementById('toggleTrails').click();
+            }
+        });
+
+        // Start
+        initParticles();
+        requestAnimationFrame(animate);
+
+        // Create initial demo wells after a short delay
+        setTimeout(() => {
+            if (wells.length === 0) {
+                wells.push(new GravityWell(width * 0.35, height * 0.5, true));
+                wells.push(new GravityWell(width * 0.65, height * 0.5, false));
+                updateWellCount();
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

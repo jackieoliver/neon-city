@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Winter - Cyberpunk Snow</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #0a0a12;
+            font-family: 'Courier New', monospace;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        #info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: #05d9e8;
+            font-size: 12px;
+            text-shadow: 0 0 10px #05d9e8;
+            z-index: 100;
+            opacity: 0.7;
+        }
+
+        #title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #d300c5;
+            font-size: 24px;
+            letter-spacing: 8px;
+            text-transform: uppercase;
+            text-shadow:
+                0 0 10px #d300c5,
+                0 0 20px #d300c5,
+                0 0 40px #d300c5;
+            z-index: 100;
+            animation: flicker 4s infinite;
+        }
+
+        @keyframes flicker {
+            0%, 100% { opacity: 1; }
+            92% { opacity: 1; }
+            93% { opacity: 0.8; }
+            94% { opacity: 1; }
+            96% { opacity: 0.9; }
+            97% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div id="title">Neon Winter</div>
+    <div id="info">Move mouse to control wind</div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+
+        // Neon colors
+        const NEON_CYAN = '#05d9e8';
+        const NEON_MAGENTA = '#d300c5';
+        const NEON_WHITE = '#ffffff';
+        const colors = [NEON_CYAN, NEON_WHITE, NEON_MAGENTA, NEON_WHITE, NEON_CYAN];
+
+        // Physics
+        let windX = 0;
+        let windY = 0;
+        let targetWindX = 0;
+        let mouseX = width / 2;
+        let mouseY = height / 2;
+
+        // Snowflakes
+        const SNOWFLAKE_COUNT = 3000;
+        const snowflakes = [];
+
+        // Accumulation
+        const accumulationHeight = new Float32Array(width);
+        const accumulationGlow = new Float32Array(width);
+
+        // City silhouette
+        const buildings = [];
+
+        // Generate cyberpunk city skyline
+        function generateCity() {
+            buildings.length = 0;
+            let x = 0;
+
+            while (x < width) {
+                const buildingWidth = 30 + Math.random() * 120;
+                const buildingHeight = 100 + Math.random() * 400;
+                const hasAntenna = Math.random() > 0.6;
+                const antennaHeight = hasAntenna ? 20 + Math.random() * 60 : 0;
+                const windowRows = Math.floor(buildingHeight / 25);
+                const windowCols = Math.floor(buildingWidth / 20);
+
+                buildings.push({
+                    x: x,
+                    width: buildingWidth,
+                    height: buildingHeight,
+                    antennaHeight: antennaHeight,
+                    windowRows: windowRows,
+                    windowCols: windowCols,
+                    windows: generateWindows(windowRows, windowCols),
+                    hasNeonSign: Math.random() > 0.7,
+                    neonColor: Math.random() > 0.5 ? NEON_CYAN : NEON_MAGENTA
+                });
+
+                x += buildingWidth + Math.random() * 10;
+            }
+
+            // Initialize accumulation based on buildings
+            for (let i = 0; i < width; i++) {
+                accumulationHeight[i] = 0;
+                accumulationGlow[i] = 0;
+            }
+        }
+
+        function generateWindows(rows, cols) {
+            const windows = [];
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    if (Math.random() > 0.3) {
+                        windows.push({
+                            row: r,
+                            col: c,
+                            lit: Math.random() > 0.4,
+                            color: Math.random() > 0.7 ?
+                                (Math.random() > 0.5 ? NEON_CYAN : NEON_MAGENTA) :
+                                '#ffcc00',
+                            flicker: Math.random() > 0.8
+                        });
+                    }
+                }
+            }
+            return windows;
+        }
+
+        // Snowflake class
+        class Snowflake {
+            constructor(x, y) {
+                this.reset(x, y);
+            }
+
+            reset(x, y) {
+                this.x = x !== undefined ? x : Math.random() * width;
+                this.y = y !== undefined ? y : Math.random() * -height;
+                this.size = 1 + Math.random() * 3;
+                this.speedY = 1 + Math.random() * 2 + this.size * 0.5;
+                this.speedX = 0;
+                this.wobbleSpeed = 0.02 + Math.random() * 0.03;
+                this.wobbleAmount = 0.5 + Math.random() * 1.5;
+                this.wobbleOffset = Math.random() * Math.PI * 2;
+                this.opacity = 0.4 + Math.random() * 0.6;
+                this.color = colors[Math.floor(Math.random() * colors.length)];
+                this.glowIntensity = this.color === NEON_WHITE ? 0.3 : 0.6;
+                this.turbulence = Math.random() * 0.5;
+                this.time = Math.random() * 1000;
+            }
+
+            update(deltaTime) {
+                this.time += deltaTime * 0.001;
+
+                // Swirling motion
+                const wobble = Math.sin(this.time * this.wobbleSpeed * 60 + this.wobbleOffset) * this.wobbleAmount;
+
+                // Turbulence
+                const turbX = Math.sin(this.time * 2.3 + this.y * 0.01) * this.turbulence;
+                const turbY = Math.cos(this.time * 1.7 + this.x * 0.01) * this.turbulence * 0.3;
+
+                // Apply wind and physics
+                this.speedX += (windX * 0.1 - this.speedX * 0.02);
+
+                this.x += this.speedX + wobble + turbX;
+                this.y += this.speedY + windY * 0.05 + turbY;
+
+                // Get ground level (building or accumulation)
+                const groundLevel = this.getGroundLevel();
+
+                // Check if landed
+                if (this.y >= groundLevel - this.size) {
+                    this.land();
+                    return;
+                }
+
+                // Wrap horizontally
+                if (this.x < -50) this.x = width + 50;
+                if (this.x > width + 50) this.x = -50;
+
+                // Reset if too far down
+                if (this.y > height + 50) {
+                    this.reset(undefined, -20);
+                }
+            }
+
+            getGroundLevel() {
+                const ix = Math.floor(this.x);
+                if (ix < 0 || ix >= width) return height;
+
+                // Check buildings
+                for (const b of buildings) {
+                    if (this.x >= b.x && this.x <= b.x + b.width) {
+                        return height - b.height - b.antennaHeight;
+                    }
+                }
+
+                // Ground with accumulation
+                return height - accumulationHeight[ix];
+            }
+
+            land() {
+                const ix = Math.floor(this.x);
+                if (ix >= 0 && ix < width) {
+                    // Add to accumulation
+                    const addAmount = this.size * 0.15;
+
+                    // Check if on building
+                    let onBuilding = false;
+                    for (const b of buildings) {
+                        if (this.x >= b.x && this.x <= b.x + b.width) {
+                            onBuilding = true;
+                            break;
+                        }
+                    }
+
+                    if (!onBuilding) {
+                        accumulationHeight[ix] = Math.min(accumulationHeight[ix] + addAmount, 80);
+
+                        // Spread to neighbors for smoother piles
+                        if (ix > 0) accumulationHeight[ix - 1] = Math.min(accumulationHeight[ix - 1] + addAmount * 0.3, 80);
+                        if (ix < width - 1) accumulationHeight[ix + 1] = Math.min(accumulationHeight[ix + 1] + addAmount * 0.3, 80);
+
+                        // Add glow
+                        if (this.color !== NEON_WHITE) {
+                            accumulationGlow[ix] = Math.min(accumulationGlow[ix] + 0.1, 1);
+                        }
+                    }
+                }
+
+                this.reset(undefined, -20 - Math.random() * 100);
+            }
+
+            draw() {
+                ctx.save();
+
+                // Glow effect
+                if (this.color !== NEON_WHITE) {
+                    ctx.shadowBlur = this.size * 4;
+                    ctx.shadowColor = this.color;
+                }
+
+                ctx.globalAlpha = this.opacity;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Extra glow for colored flakes
+                if (this.color !== NEON_WHITE && this.size > 2) {
+                    ctx.globalAlpha = this.opacity * 0.3;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size * 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                ctx.restore();
+            }
+        }
+
+        // Initialize snowflakes
+        function initSnowflakes() {
+            snowflakes.length = 0;
+            for (let i = 0; i < SNOWFLAKE_COUNT; i++) {
+                snowflakes.push(new Snowflake(
+                    Math.random() * width,
+                    Math.random() * height
+                ));
+            }
+        }
+
+        // Draw city silhouette
+        function drawCity() {
+            for (const b of buildings) {
+                // Building body
+                ctx.fillStyle = '#0d0d18';
+                ctx.fillRect(b.x, height - b.height, b.width, b.height);
+
+                // Building outline glow
+                ctx.strokeStyle = 'rgba(5, 217, 232, 0.1)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(b.x, height - b.height, b.width, b.height);
+
+                // Windows
+                const windowWidth = 8;
+                const windowHeight = 12;
+                const startX = b.x + 10;
+                const startY = height - b.height + 15;
+
+                for (const w of b.windows) {
+                    const wx = startX + w.col * 18;
+                    const wy = startY + w.row * 22;
+
+                    if (w.lit) {
+                        // Flickering effect
+                        let alpha = 0.8;
+                        if (w.flicker) {
+                            alpha = 0.5 + Math.sin(Date.now() * 0.01 + w.row * w.col) * 0.3;
+                        }
+
+                        ctx.fillStyle = w.color;
+                        ctx.globalAlpha = alpha;
+                        ctx.shadowBlur = 8;
+                        ctx.shadowColor = w.color;
+                        ctx.fillRect(wx, wy, windowWidth, windowHeight);
+                        ctx.shadowBlur = 0;
+                        ctx.globalAlpha = 1;
+                    } else {
+                        ctx.fillStyle = '#151525';
+                        ctx.fillRect(wx, wy, windowWidth, windowHeight);
+                    }
+                }
+
+                // Antenna
+                if (b.antennaHeight > 0) {
+                    ctx.strokeStyle = '#1a1a2e';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(b.x + b.width / 2, height - b.height);
+                    ctx.lineTo(b.x + b.width / 2, height - b.height - b.antennaHeight);
+                    ctx.stroke();
+
+                    // Blinking light
+                    const blinkOn = Math.sin(Date.now() * 0.003) > 0;
+                    if (blinkOn) {
+                        ctx.fillStyle = '#ff0040';
+                        ctx.shadowBlur = 15;
+                        ctx.shadowColor = '#ff0040';
+                        ctx.beginPath();
+                        ctx.arc(b.x + b.width / 2, height - b.height - b.antennaHeight, 3, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.shadowBlur = 0;
+                    }
+                }
+
+                // Neon sign on some buildings
+                if (b.hasNeonSign && b.height > 200) {
+                    const signY = height - b.height + 50;
+                    ctx.fillStyle = b.neonColor;
+                    ctx.shadowBlur = 20;
+                    ctx.shadowColor = b.neonColor;
+                    ctx.fillRect(b.x + 10, signY, b.width - 20, 4);
+                    ctx.shadowBlur = 0;
+                }
+            }
+        }
+
+        // Draw snow accumulation
+        function drawAccumulation() {
+            ctx.beginPath();
+            ctx.moveTo(0, height);
+
+            for (let x = 0; x < width; x++) {
+                ctx.lineTo(x, height - accumulationHeight[x]);
+            }
+
+            ctx.lineTo(width, height);
+            ctx.closePath();
+
+            // Snow gradient
+            const gradient = ctx.createLinearGradient(0, height - 80, 0, height);
+            gradient.addColorStop(0, 'rgba(200, 220, 255, 0.9)');
+            gradient.addColorStop(0.5, 'rgba(180, 200, 240, 0.8)');
+            gradient.addColorStop(1, 'rgba(150, 180, 220, 0.7)');
+            ctx.fillStyle = gradient;
+            ctx.fill();
+
+            // Neon glow on snow
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+
+            for (let x = 0; x < width; x += 3) {
+                if (accumulationGlow[x] > 0.1) {
+                    const glowColor = x % 2 === 0 ? NEON_CYAN : NEON_MAGENTA;
+                    ctx.fillStyle = glowColor;
+                    ctx.globalAlpha = accumulationGlow[x] * 0.3;
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = glowColor;
+                    ctx.beginPath();
+                    ctx.arc(x, height - accumulationHeight[x], 3, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Fade glow over time
+                    accumulationGlow[x] *= 0.999;
+                }
+            }
+
+            ctx.restore();
+        }
+
+        // Draw atmospheric effects
+        function drawAtmosphere() {
+            // Gradient sky
+            const skyGradient = ctx.createLinearGradient(0, 0, 0, height);
+            skyGradient.addColorStop(0, '#0a0a15');
+            skyGradient.addColorStop(0.5, '#0d0d20');
+            skyGradient.addColorStop(1, '#101025');
+            ctx.fillStyle = skyGradient;
+            ctx.fillRect(0, 0, width, height);
+
+            // Distant city glow
+            ctx.fillStyle = 'rgba(211, 0, 197, 0.03)';
+            ctx.fillRect(0, height * 0.6, width, height * 0.4);
+
+            // Fog layers
+            for (let i = 0; i < 3; i++) {
+                const fogY = height * 0.7 + i * 50;
+                const fogGradient = ctx.createLinearGradient(0, fogY - 50, 0, fogY + 50);
+                fogGradient.addColorStop(0, 'rgba(5, 217, 232, 0)');
+                fogGradient.addColorStop(0.5, `rgba(5, 217, 232, ${0.02 - i * 0.005})`);
+                fogGradient.addColorStop(1, 'rgba(5, 217, 232, 0)');
+                ctx.fillStyle = fogGradient;
+                ctx.fillRect(0, fogY - 50, width, 100);
+            }
+        }
+
+        // Mouse handling
+        canvas.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            targetWindX = (mouseX - width / 2) / (width / 2) * 5;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            targetWindX = 0;
+        });
+
+        // Resize handling
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            generateCity();
+            initSnowflakes();
+        });
+
+        // Animation
+        let lastTime = 0;
+
+        function animate(currentTime) {
+            const deltaTime = Math.min(currentTime - lastTime, 50);
+            lastTime = currentTime;
+
+            // Smooth wind transition
+            windX += (targetWindX - windX) * 0.02;
+            windY = Math.sin(currentTime * 0.001) * 0.5;
+
+            // Clear and draw background
+            ctx.clearRect(0, 0, width, height);
+            drawAtmosphere();
+            drawCity();
+            drawAccumulation();
+
+            // Update and draw snowflakes
+            for (const flake of snowflakes) {
+                flake.update(deltaTime);
+                flake.draw();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // Initialize
+        generateCity();
+        initSnowflakes();
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>

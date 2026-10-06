@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GLITCH_GENERATOR_v0.666</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            cursor: crosshair;
+        }
+
+        #glitchCanvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .glitch-text {
+            position: fixed;
+            font-weight: bold;
+            text-transform: uppercase;
+            pointer-events: none;
+            z-index: 10;
+            mix-blend-mode: screen;
+        }
+
+        .glitch-text::before,
+        .glitch-text::after {
+            content: attr(data-text);
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .glitch-text::before {
+            color: #ff2a6d;
+            animation: glitch-text-1 0.3s infinite;
+            clip-path: polygon(0 0, 100% 0, 100% 35%, 0 35%);
+        }
+
+        .glitch-text::after {
+            color: #05d9e8;
+            animation: glitch-text-2 0.3s infinite;
+            clip-path: polygon(0 65%, 100% 65%, 100% 100%, 0 100%);
+        }
+
+        @keyframes glitch-text-1 {
+            0%, 100% { transform: translate(0); }
+            20% { transform: translate(-3px, 3px); }
+            40% { transform: translate(3px, -3px); }
+            60% { transform: translate(-3px, -3px); }
+            80% { transform: translate(3px, 3px); }
+        }
+
+        @keyframes glitch-text-2 {
+            0%, 100% { transform: translate(0); }
+            20% { transform: translate(3px, -3px); }
+            40% { transform: translate(-3px, 3px); }
+            60% { transform: translate(3px, 3px); }
+            80% { transform: translate(-3px, -3px); }
+        }
+
+        #overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 5;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.1) 0px,
+                rgba(0, 0, 0, 0.1) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+        }
+
+        #vignette {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 6;
+            background: radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.7) 100%);
+        }
+
+        .intensity-indicator {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: #00ff9f;
+            font-size: 12px;
+            z-index: 20;
+            opacity: 0.7;
+            text-shadow: 0 0 10px #00ff9f;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="glitchCanvas"></canvas>
+    <div id="overlay"></div>
+    <div id="vignette"></div>
+    <div class="intensity-indicator">[ CLICK FOR CHAOS ]</div>
+
+    <script>
+        const canvas = document.getElementById('glitchCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Colors
+        const PINK = '#ff2a6d';
+        const CYAN = '#05d9e8';
+        const GREEN = '#00ff9f';
+        const DARK = '#0a0a0f';
+
+        // State
+        let width, height;
+        let intenseBurst = 0;
+        let frameCount = 0;
+        let glitchTexts = [];
+        let noiseData = null;
+        let lastFrameTime = 0;
+
+        // Glitch messages
+        const MESSAGES = [
+            'SYSTEM ERROR',
+            'BREACH DETECTED',
+            'MEMORY CORRUPT',
+            'DATA LOSS',
+            'FATAL EXCEPTION',
+            'OVERFLOW',
+            'SEGFAULT',
+            'NULL POINTER',
+            'STACK OVERFLOW',
+            'CORE DUMPED',
+            'KERNEL PANIC',
+            'ACCESS DENIED',
+            'BUFFER OVERFLOW',
+            'CRITICAL FAILURE',
+            '0xDEADBEEF',
+            'ERR_CONNECTION_RESET',
+            'SIGNAL 11',
+            'UNDEFINED',
+            'NaN',
+            'VOID'
+        ];
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            generateNoiseTexture();
+        }
+
+        function generateNoiseTexture() {
+            const imageData = ctx.createImageData(width, height);
+            noiseData = imageData;
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                const v = Math.random() * 255;
+                imageData.data[i] = v;
+                imageData.data[i + 1] = v;
+                imageData.data[i + 2] = v;
+                imageData.data[i + 3] = 255;
+            }
+        }
+
+        function updateNoise() {
+            const intensity = 0.1 + intenseBurst * 0.3;
+            for (let i = 0; i < noiseData.data.length; i += 4) {
+                if (Math.random() < intensity) {
+                    const v = Math.random() * 255;
+                    noiseData.data[i] = v;
+                    noiseData.data[i + 1] = v;
+                    noiseData.data[i + 2] = v;
+                }
+            }
+        }
+
+        function drawNoise(opacity) {
+            ctx.save();
+            ctx.globalAlpha = opacity;
+            ctx.globalCompositeOperation = 'overlay';
+            ctx.putImageData(noiseData, 0, 0);
+            ctx.restore();
+        }
+
+        function rgbSplit(imageData, amount) {
+            const data = imageData.data;
+            const copy = new Uint8ClampedArray(data);
+            const offset = Math.floor(amount * width * 4);
+
+            for (let i = 0; i < data.length; i += 4) {
+                // Red channel shift left
+                if (i - offset >= 0) {
+                    data[i] = copy[i - offset];
+                }
+                // Blue channel shift right
+                if (i + offset < data.length) {
+                    data[i + 2] = copy[i + offset + 2];
+                }
+            }
+            return imageData;
+        }
+
+        function drawScanlines() {
+            ctx.save();
+            ctx.globalAlpha = 0.15;
+            ctx.fillStyle = '#000';
+            for (let y = 0; y < height; y += 3) {
+                ctx.fillRect(0, y, width, 1);
+            }
+            ctx.restore();
+        }
+
+        function drawGlitchBlocks() {
+            const numBlocks = Math.floor(3 + Math.random() * 5 + intenseBurst * 10);
+
+            for (let i = 0; i < numBlocks; i++) {
+                const x = Math.random() * width;
+                const y = Math.random() * height;
+                const w = 20 + Math.random() * 200;
+                const h = 2 + Math.random() * 30;
+
+                // Grab and shift pixels
+                const shift = (Math.random() - 0.5) * 50 * (1 + intenseBurst * 3);
+
+                ctx.save();
+                try {
+                    const imgData = ctx.getImageData(x, y, w, h);
+                    ctx.putImageData(imgData, x + shift, y);
+                } catch(e) {}
+                ctx.restore();
+            }
+        }
+
+        function drawCorruptionLines() {
+            const numLines = Math.floor(5 + intenseBurst * 20);
+
+            for (let i = 0; i < numLines; i++) {
+                const y = Math.random() * height;
+                const x = Math.random() * width * 0.3;
+                const lineWidth = 50 + Math.random() * (width - x);
+                const lineHeight = 1 + Math.random() * 3;
+
+                ctx.save();
+                ctx.globalCompositeOperation = 'screen';
+                ctx.fillStyle = [PINK, CYAN, GREEN][Math.floor(Math.random() * 3)];
+                ctx.globalAlpha = 0.3 + Math.random() * 0.5;
+                ctx.fillRect(x, y, lineWidth, lineHeight);
+                ctx.restore();
+            }
+        }
+
+        function pixelSort(startY, endY) {
+            try {
+                const imgData = ctx.getImageData(0, startY, width, endY - startY);
+                const data = imgData.data;
+
+                for (let y = 0; y < endY - startY; y++) {
+                    const rowStart = y * width * 4;
+                    const pixels = [];
+
+                    for (let x = 0; x < width; x++) {
+                        const i = rowStart + x * 4;
+                        pixels.push({
+                            r: data[i],
+                            g: data[i + 1],
+                            b: data[i + 2],
+                            a: data[i + 3],
+                            brightness: data[i] + data[i + 1] + data[i + 2]
+                        });
+                    }
+
+                    // Sort by brightness
+                    pixels.sort((a, b) => a.brightness - b.brightness);
+
+                    for (let x = 0; x < width; x++) {
+                        const i = rowStart + x * 4;
+                        data[i] = pixels[x].r;
+                        data[i + 1] = pixels[x].g;
+                        data[i + 2] = pixels[x].b;
+                        data[i + 3] = pixels[x].a;
+                    }
+                }
+
+                ctx.putImageData(imgData, 0, startY);
+            } catch(e) {}
+        }
+
+        function drawDataStreams() {
+            const numStreams = 3 + Math.floor(intenseBurst * 5);
+
+            for (let i = 0; i < numStreams; i++) {
+                const x = Math.random() * width;
+                const chars = '01アイウエオカキクケコサシスセソ█▓▒░';
+
+                ctx.save();
+                ctx.font = '12px Courier New';
+                ctx.fillStyle = [PINK, CYAN, GREEN][Math.floor(Math.random() * 3)];
+                ctx.globalAlpha = 0.3 + Math.random() * 0.4;
+
+                let y = Math.random() * height;
+                for (let j = 0; j < 20; j++) {
+                    const char = chars[Math.floor(Math.random() * chars.length)];
+                    ctx.fillText(char, x, y);
+                    y += 14;
+                }
+                ctx.restore();
+            }
+        }
+
+        function createGlitchText() {
+            const text = MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
+            const el = document.createElement('div');
+            el.className = 'glitch-text';
+            el.textContent = text;
+            el.setAttribute('data-text', text);
+            el.style.left = Math.random() * (width - 200) + 'px';
+            el.style.top = Math.random() * (height - 50) + 'px';
+            el.style.fontSize = (14 + Math.random() * 36) + 'px';
+            el.style.color = [PINK, CYAN, GREEN][Math.floor(Math.random() * 3)];
+            el.style.textShadow = `0 0 10px currentColor, 0 0 20px currentColor`;
+
+            document.body.appendChild(el);
+
+            const lifetime = 500 + Math.random() * 2000;
+            setTimeout(() => {
+                el.remove();
+            }, lifetime);
+        }
+
+        function drawGeometricGlitch() {
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.globalAlpha = 0.2 + intenseBurst * 0.3;
+
+            const numShapes = 2 + Math.floor(intenseBurst * 5);
+
+            for (let i = 0; i < numShapes; i++) {
+                const x = Math.random() * width;
+                const y = Math.random() * height;
+                const size = 20 + Math.random() * 100;
+
+                ctx.strokeStyle = [PINK, CYAN, GREEN][Math.floor(Math.random() * 3)];
+                ctx.lineWidth = 1 + Math.random() * 3;
+                ctx.beginPath();
+
+                const sides = 3 + Math.floor(Math.random() * 5);
+                for (let j = 0; j <= sides; j++) {
+                    const angle = (j / sides) * Math.PI * 2;
+                    const px = x + Math.cos(angle) * size;
+                    const py = y + Math.sin(angle) * size;
+                    if (j === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        function drawWaveDistortion() {
+            if (Math.random() > 0.3 + intenseBurst * 0.5) return;
+
+            try {
+                const segmentHeight = 2 + Math.floor(Math.random() * 10);
+                const numSegments = Math.floor(height / segmentHeight);
+
+                for (let i = 0; i < numSegments; i++) {
+                    if (Math.random() > 0.1) continue;
+
+                    const y = i * segmentHeight;
+                    const shift = Math.sin(frameCount * 0.1 + i * 0.5) * 10 * (1 + intenseBurst * 2);
+
+                    const imgData = ctx.getImageData(0, y, width, segmentHeight);
+                    ctx.putImageData(imgData, shift, y);
+                }
+            } catch(e) {}
+        }
+
+        function drawStaticBurst() {
+            if (intenseBurst < 0.3) return;
+
+            ctx.save();
+            ctx.globalAlpha = intenseBurst * 0.5;
+
+            for (let i = 0; i < 1000 * intenseBurst; i++) {
+                const x = Math.random() * width;
+                const y = Math.random() * height;
+                const size = 1 + Math.random() * 3;
+                ctx.fillStyle = Math.random() > 0.5 ? '#fff' : '#000';
+                ctx.fillRect(x, y, size, size);
+            }
+            ctx.restore();
+        }
+
+        function drawBasePattern() {
+            // Dark background with subtle pattern
+            ctx.fillStyle = DARK;
+            ctx.fillRect(0, 0, width, height);
+
+            // Grid pattern
+            ctx.save();
+            ctx.globalAlpha = 0.05;
+            ctx.strokeStyle = CYAN;
+            ctx.lineWidth = 1;
+
+            const gridSize = 50;
+            for (let x = 0; x < width; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+            for (let y = 0; y < height; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+            ctx.restore();
+
+            // Random colored rectangles
+            const numRects = 3 + Math.floor(intenseBurst * 7);
+            for (let i = 0; i < numRects; i++) {
+                ctx.save();
+                ctx.globalAlpha = 0.1 + Math.random() * 0.2;
+                ctx.fillStyle = [PINK, CYAN, GREEN][Math.floor(Math.random() * 3)];
+                const x = Math.random() * width;
+                const y = Math.random() * height;
+                const w = 50 + Math.random() * 300;
+                const h = 50 + Math.random() * 200;
+                ctx.fillRect(x, y, w, h);
+                ctx.restore();
+            }
+        }
+
+        function applyChromaShift() {
+            try {
+                const amount = 0.002 + intenseBurst * 0.01 + Math.sin(frameCount * 0.05) * 0.002;
+                const imgData = ctx.getImageData(0, 0, width, height);
+                rgbSplit(imgData, amount);
+                ctx.putImageData(imgData, 0, 0);
+            } catch(e) {}
+        }
+
+        function render(timestamp) {
+            const deltaTime = timestamp - lastFrameTime;
+            lastFrameTime = timestamp;
+
+            frameCount++;
+
+            // Decay intense burst
+            intenseBurst *= 0.95;
+            if (intenseBurst < 0.01) intenseBurst = 0;
+
+            // Random mini bursts
+            if (Math.random() < 0.02) {
+                intenseBurst = Math.max(intenseBurst, 0.3 + Math.random() * 0.3);
+            }
+
+            // Draw base
+            drawBasePattern();
+
+            // Glitch effects
+            updateNoise();
+            drawNoise(0.05 + intenseBurst * 0.15);
+
+            drawDataStreams();
+            drawGeometricGlitch();
+            drawCorruptionLines();
+            drawGlitchBlocks();
+            drawWaveDistortion();
+            drawStaticBurst();
+
+            // Pixel sorting on random segments
+            if (Math.random() < 0.1 + intenseBurst * 0.3) {
+                const startY = Math.floor(Math.random() * height);
+                const endY = startY + Math.floor(20 + Math.random() * 100);
+                pixelSort(startY, Math.min(endY, height));
+            }
+
+            applyChromaShift();
+            drawScanlines();
+
+            // Random text spawns
+            if (Math.random() < 0.03 + intenseBurst * 0.2) {
+                createGlitchText();
+            }
+
+            requestAnimationFrame(render);
+        }
+
+        // Event handlers
+        window.addEventListener('resize', resize);
+
+        document.addEventListener('click', (e) => {
+            intenseBurst = 1;
+
+            // Spawn multiple texts on click
+            for (let i = 0; i < 5; i++) {
+                setTimeout(() => createGlitchText(), i * 100);
+            }
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (e.buttons === 1) {
+                intenseBurst = Math.min(1, intenseBurst + 0.1);
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                intenseBurst = 1;
+            }
+        });
+
+        // Initialize
+        resize();
+        requestAnimationFrame(render);
+
+        // Periodic intense glitches
+        setInterval(() => {
+            if (Math.random() < 0.3) {
+                intenseBurst = 0.5 + Math.random() * 0.5;
+                createGlitchText();
+            }
+        }, 2000);
+    </script>
+</body>
+</html>

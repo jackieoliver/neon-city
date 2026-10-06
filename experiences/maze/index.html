@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEON MAZE // CYBERPUNK LABYRINTH</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Scanline effect */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 0, 0, 0.1) 2px,
+                rgba(0, 0, 0, 0.1) 4px
+            );
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        /* Vignette */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.8) 100%);
+            pointer-events: none;
+            z-index: 999;
+        }
+
+        .title {
+            font-size: clamp(1.5rem, 4vw, 2.5rem);
+            font-weight: bold;
+            letter-spacing: 0.3em;
+            margin-bottom: 20px;
+            background: linear-gradient(90deg, #ff2a6d, #05d9e8, #ff2a6d);
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: gradient-shift 3s linear infinite;
+            text-shadow: 0 0 30px rgba(255, 42, 109, 0.5);
+            position: relative;
+            z-index: 10;
+        }
+
+        @keyframes gradient-shift {
+            0% { background-position: 0% center; }
+            100% { background-position: 200% center; }
+        }
+
+        .container {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            z-index: 10;
+        }
+
+        .canvas-wrapper {
+            position: relative;
+            border: 2px solid #ff2a6d;
+            box-shadow:
+                0 0 20px rgba(255, 42, 109, 0.5),
+                0 0 40px rgba(255, 42, 109, 0.3),
+                inset 0 0 60px rgba(5, 217, 232, 0.1);
+            background: #0a0a0f;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            font-weight: bold;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            border: 2px solid #05d9e8;
+            background: transparent;
+            color: #05d9e8;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(5, 217, 232, 0.3), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .btn:hover {
+            background: rgba(5, 217, 232, 0.1);
+            box-shadow:
+                0 0 20px rgba(5, 217, 232, 0.5),
+                inset 0 0 20px rgba(5, 217, 232, 0.1);
+        }
+
+        .btn:hover::before {
+            left: 100%;
+        }
+
+        .btn.pink {
+            border-color: #ff2a6d;
+            color: #ff2a6d;
+        }
+
+        .btn.pink::before {
+            background: linear-gradient(90deg, transparent, rgba(255, 42, 109, 0.3), transparent);
+        }
+
+        .btn.pink:hover {
+            background: rgba(255, 42, 109, 0.1);
+            box-shadow:
+                0 0 20px rgba(255, 42, 109, 0.5),
+                inset 0 0 20px rgba(255, 42, 109, 0.1);
+        }
+
+        .status {
+            font-size: 0.8rem;
+            letter-spacing: 0.2em;
+            color: #05d9e8;
+            text-shadow: 0 0 10px rgba(5, 217, 232, 0.8);
+            min-height: 1.5em;
+        }
+
+        .legend {
+            display: flex;
+            gap: 20px;
+            font-size: 0.75rem;
+            color: #666;
+            letter-spacing: 0.1em;
+        }
+
+        .legend span {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .legend-dot.start {
+            background: #05d9e8;
+            box-shadow: 0 0 10px #05d9e8;
+        }
+
+        .legend-dot.end {
+            background: #ff2a6d;
+            box-shadow: 0 0 10px #ff2a6d;
+        }
+
+        .legend-dot.path {
+            background: #d300c5;
+            box-shadow: 0 0 10px #d300c5;
+        }
+
+        /* Floating particles background */
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+    </style>
+</head>
+<body>
+    <canvas class="particles" id="particles"></canvas>
+
+    <div class="container">
+        <h1 class="title">NEON MAZE</h1>
+
+        <div class="canvas-wrapper">
+            <canvas id="maze"></canvas>
+        </div>
+
+        <div class="status" id="status">CLICK TO INITIALIZE</div>
+
+        <div class="controls">
+            <button class="btn" id="generateBtn">GENERATE</button>
+            <button class="btn pink" id="solveBtn">SOLVE</button>
+        </div>
+
+        <div class="legend">
+            <span><div class="legend-dot start"></div>START</span>
+            <span><div class="legend-dot end"></div>END</span>
+            <span><div class="legend-dot path"></div>PATH</span>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // CONFIGURATION
+        // ============================================
+        const CONFIG = {
+            cellSize: 20,
+            wallWidth: 2,
+            genSpeed: 2,      // cells per frame during generation
+            solveSpeed: 3,    // cells per frame during solving
+            colors: {
+                background: '#0a0a0f',
+                wall: '#1a1a2e',
+                wallGlow: '#ff2a6d',
+                visited: '#0f0f1a',
+                current: '#05d9e8',
+                start: '#05d9e8',
+                end: '#ff2a6d',
+                path: '#d300c5',
+                explored: 'rgba(5, 217, 232, 0.15)',
+                pathGlow: '#ff2a6d'
+            }
+        };
+
+        // ============================================
+        // MAZE CLASS
+        // ============================================
+        class Maze {
+            constructor(canvas, width, height) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.cols = width;
+                this.rows = height;
+                this.cellSize = CONFIG.cellSize;
+
+                canvas.width = this.cols * this.cellSize;
+                canvas.height = this.rows * this.cellSize;
+
+                this.grid = [];
+                this.stack = [];
+                this.current = null;
+                this.generating = false;
+                this.solving = false;
+                this.solved = false;
+                this.path = [];
+                this.exploredCells = [];
+
+                this.startCell = null;
+                this.endCell = null;
+
+                this.init();
+            }
+
+            init() {
+                this.grid = [];
+                this.stack = [];
+                this.path = [];
+                this.exploredCells = [];
+                this.solved = false;
+
+                for (let y = 0; y < this.rows; y++) {
+                    for (let x = 0; x < this.cols; x++) {
+                        this.grid.push(new Cell(x, y, this));
+                    }
+                }
+
+                // Set start and end
+                this.startCell = this.grid[0];
+                this.endCell = this.grid[this.grid.length - 1];
+                this.startCell.isStart = true;
+                this.endCell.isEnd = true;
+
+                this.current = this.startCell;
+                this.current.visited = true;
+                this.stack.push(this.current);
+            }
+
+            getCell(x, y) {
+                if (x < 0 || x >= this.cols || y < 0 || y >= this.rows) return null;
+                return this.grid[x + y * this.cols];
+            }
+
+            // Recursive backtracking generation step
+            generateStep() {
+                if (this.stack.length === 0) {
+                    this.generating = false;
+                    this.current = null;
+                    return false;
+                }
+
+                const next = this.current.getUnvisitedNeighbor();
+
+                if (next) {
+                    next.visited = true;
+                    this.stack.push(this.current);
+                    this.removeWalls(this.current, next);
+                    this.current = next;
+                } else {
+                    this.current = this.stack.pop();
+                }
+
+                return true;
+            }
+
+            removeWalls(a, b) {
+                const dx = a.x - b.x;
+                const dy = a.y - b.y;
+
+                if (dx === 1) {
+                    a.walls.left = false;
+                    b.walls.right = false;
+                } else if (dx === -1) {
+                    a.walls.right = false;
+                    b.walls.left = false;
+                }
+
+                if (dy === 1) {
+                    a.walls.top = false;
+                    b.walls.bottom = false;
+                } else if (dy === -1) {
+                    a.walls.bottom = false;
+                    b.walls.top = false;
+                }
+            }
+
+            // A* Pathfinding
+            initSolve() {
+                this.openSet = [this.startCell];
+                this.closedSet = [];
+                this.path = [];
+                this.exploredCells = [];
+
+                for (const cell of this.grid) {
+                    cell.f = 0;
+                    cell.g = 0;
+                    cell.h = 0;
+                    cell.parent = null;
+                    cell.inPath = false;
+                    cell.explored = false;
+                }
+
+                this.startCell.g = 0;
+                this.startCell.h = this.heuristic(this.startCell, this.endCell);
+                this.startCell.f = this.startCell.h;
+            }
+
+            heuristic(a, b) {
+                return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+            }
+
+            solveStep() {
+                if (this.openSet.length === 0) {
+                    this.solving = false;
+                    return false; // No solution
+                }
+
+                // Find lowest f score
+                let lowestIndex = 0;
+                for (let i = 0; i < this.openSet.length; i++) {
+                    if (this.openSet[i].f < this.openSet[lowestIndex].f) {
+                        lowestIndex = i;
+                    }
+                }
+
+                const current = this.openSet[lowestIndex];
+
+                // Found the end
+                if (current === this.endCell) {
+                    this.reconstructPath();
+                    this.solving = false;
+                    this.solved = true;
+                    return false;
+                }
+
+                // Move current from open to closed
+                this.openSet.splice(lowestIndex, 1);
+                this.closedSet.push(current);
+                current.explored = true;
+                this.exploredCells.push(current);
+
+                // Check neighbors
+                const neighbors = current.getAccessibleNeighbors();
+
+                for (const neighbor of neighbors) {
+                    if (this.closedSet.includes(neighbor)) continue;
+
+                    const tentativeG = current.g + 1;
+
+                    let newPath = false;
+                    if (this.openSet.includes(neighbor)) {
+                        if (tentativeG < neighbor.g) {
+                            neighbor.g = tentativeG;
+                            newPath = true;
+                        }
+                    } else {
+                        neighbor.g = tentativeG;
+                        this.openSet.push(neighbor);
+                        newPath = true;
+                    }
+
+                    if (newPath) {
+                        neighbor.h = this.heuristic(neighbor, this.endCell);
+                        neighbor.f = neighbor.g + neighbor.h;
+                        neighbor.parent = current;
+                    }
+                }
+
+                return true;
+            }
+
+            reconstructPath() {
+                this.path = [];
+                let current = this.endCell;
+
+                while (current) {
+                    this.path.unshift(current);
+                    current.inPath = true;
+                    current = current.parent;
+                }
+            }
+
+            draw(time) {
+                const ctx = this.ctx;
+                const size = this.cellSize;
+
+                // Clear
+                ctx.fillStyle = CONFIG.colors.background;
+                ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+                // Draw cells
+                for (const cell of this.grid) {
+                    cell.draw(ctx, size, time);
+                }
+
+                // Draw walls with glow
+                ctx.lineCap = 'round';
+
+                for (const cell of this.grid) {
+                    cell.drawWalls(ctx, size, time);
+                }
+
+                // Draw path with animated glow
+                if (this.path.length > 0) {
+                    this.drawPath(ctx, size, time);
+                }
+
+                // Draw current cell during generation
+                if (this.current && this.generating) {
+                    const pulse = Math.sin(time * 0.01) * 0.3 + 0.7;
+                    ctx.fillStyle = CONFIG.colors.current;
+                    ctx.shadowColor = CONFIG.colors.current;
+                    ctx.shadowBlur = 20 * pulse;
+                    ctx.fillRect(
+                        this.current.x * size + 2,
+                        this.current.y * size + 2,
+                        size - 4,
+                        size - 4
+                    );
+                    ctx.shadowBlur = 0;
+                }
+
+                // Draw start and end markers
+                this.drawMarker(ctx, this.startCell, CONFIG.colors.start, time);
+                this.drawMarker(ctx, this.endCell, CONFIG.colors.end, time);
+            }
+
+            drawPath(ctx, size, time) {
+                if (this.path.length < 2) return;
+
+                const glowPulse = Math.sin(time * 0.005) * 0.5 + 0.5;
+
+                // Draw path glow
+                ctx.strokeStyle = CONFIG.colors.path;
+                ctx.lineWidth = size * 0.4;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.shadowColor = CONFIG.colors.pathGlow;
+                ctx.shadowBlur = 15 + glowPulse * 10;
+
+                ctx.beginPath();
+                ctx.moveTo(
+                    this.path[0].x * size + size / 2,
+                    this.path[0].y * size + size / 2
+                );
+
+                for (let i = 1; i < this.path.length; i++) {
+                    ctx.lineTo(
+                        this.path[i].x * size + size / 2,
+                        this.path[i].y * size + size / 2
+                    );
+                }
+
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+
+                // Animated energy along path
+                const pathProgress = (time * 0.003) % 1;
+                const energyIndex = Math.floor(pathProgress * this.path.length);
+
+                if (this.path[energyIndex]) {
+                    const cell = this.path[energyIndex];
+                    ctx.fillStyle = '#ffffff';
+                    ctx.shadowColor = '#ffffff';
+                    ctx.shadowBlur = 20;
+                    ctx.beginPath();
+                    ctx.arc(
+                        cell.x * size + size / 2,
+                        cell.y * size + size / 2,
+                        size * 0.15,
+                        0,
+                        Math.PI * 2
+                    );
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                }
+            }
+
+            drawMarker(ctx, cell, color, time) {
+                if (!cell) return;
+
+                const size = this.cellSize;
+                const pulse = Math.sin(time * 0.008) * 0.3 + 0.7;
+                const x = cell.x * size + size / 2;
+                const y = cell.y * size + size / 2;
+
+                // Outer glow
+                ctx.fillStyle = color;
+                ctx.shadowColor = color;
+                ctx.shadowBlur = 20 * pulse;
+                ctx.beginPath();
+                ctx.arc(x, y, size * 0.3, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Inner bright
+                ctx.fillStyle = '#ffffff';
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.arc(x, y, size * 0.15, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        // ============================================
+        // CELL CLASS
+        // ============================================
+        class Cell {
+            constructor(x, y, maze) {
+                this.x = x;
+                this.y = y;
+                this.maze = maze;
+                this.walls = { top: true, right: true, bottom: true, left: true };
+                this.visited = false;
+                this.isStart = false;
+                this.isEnd = false;
+                this.explored = false;
+                this.inPath = false;
+
+                // A* properties
+                this.f = 0;
+                this.g = 0;
+                this.h = 0;
+                this.parent = null;
+            }
+
+            getUnvisitedNeighbor() {
+                const neighbors = [];
+                const { x, y, maze } = this;
+
+                const top = maze.getCell(x, y - 1);
+                const right = maze.getCell(x + 1, y);
+                const bottom = maze.getCell(x, y + 1);
+                const left = maze.getCell(x - 1, y);
+
+                if (top && !top.visited) neighbors.push(top);
+                if (right && !right.visited) neighbors.push(right);
+                if (bottom && !bottom.visited) neighbors.push(bottom);
+                if (left && !left.visited) neighbors.push(left);
+
+                if (neighbors.length === 0) return null;
+                return neighbors[Math.floor(Math.random() * neighbors.length)];
+            }
+
+            getAccessibleNeighbors() {
+                const neighbors = [];
+                const { x, y, maze, walls } = this;
+
+                if (!walls.top) {
+                    const cell = maze.getCell(x, y - 1);
+                    if (cell) neighbors.push(cell);
+                }
+                if (!walls.right) {
+                    const cell = maze.getCell(x + 1, y);
+                    if (cell) neighbors.push(cell);
+                }
+                if (!walls.bottom) {
+                    const cell = maze.getCell(x, y + 1);
+                    if (cell) neighbors.push(cell);
+                }
+                if (!walls.left) {
+                    const cell = maze.getCell(x - 1, y);
+                    if (cell) neighbors.push(cell);
+                }
+
+                return neighbors;
+            }
+
+            draw(ctx, size, time) {
+                const x = this.x * size;
+                const y = this.y * size;
+
+                // Background for visited cells
+                if (this.visited) {
+                    ctx.fillStyle = CONFIG.colors.visited;
+                    ctx.fillRect(x, y, size, size);
+                }
+
+                // Explored cells during A* (subtle glow)
+                if (this.explored && !this.inPath) {
+                    const alpha = 0.1 + Math.sin(time * 0.005 + this.x * 0.5 + this.y * 0.5) * 0.05;
+                    ctx.fillStyle = `rgba(5, 217, 232, ${alpha})`;
+                    ctx.fillRect(x + 1, y + 1, size - 2, size - 2);
+                }
+            }
+
+            drawWalls(ctx, size, time) {
+                const x = this.x * size;
+                const y = this.y * size;
+                const w = CONFIG.wallWidth;
+
+                ctx.strokeStyle = CONFIG.colors.wall;
+                ctx.lineWidth = w;
+                ctx.shadowColor = CONFIG.colors.wallGlow;
+                ctx.shadowBlur = 3;
+
+                if (this.walls.top) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(x + size, y);
+                    ctx.stroke();
+                }
+                if (this.walls.right) {
+                    ctx.beginPath();
+                    ctx.moveTo(x + size, y);
+                    ctx.lineTo(x + size, y + size);
+                    ctx.stroke();
+                }
+                if (this.walls.bottom) {
+                    ctx.beginPath();
+                    ctx.moveTo(x + size, y + size);
+                    ctx.lineTo(x, y + size);
+                    ctx.stroke();
+                }
+                if (this.walls.left) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, y + size);
+                    ctx.lineTo(x, y);
+                    ctx.stroke();
+                }
+
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        // ============================================
+        // PARTICLE SYSTEM (Background ambiance)
+        // ============================================
+        class ParticleSystem {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.particles = [];
+                this.resize();
+
+                window.addEventListener('resize', () => this.resize());
+
+                for (let i = 0; i < 50; i++) {
+                    this.particles.push(this.createParticle());
+                }
+            }
+
+            resize() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+            }
+
+            createParticle() {
+                return {
+                    x: Math.random() * this.canvas.width,
+                    y: Math.random() * this.canvas.height,
+                    size: Math.random() * 2 + 0.5,
+                    speedX: (Math.random() - 0.5) * 0.5,
+                    speedY: (Math.random() - 0.5) * 0.5,
+                    color: Math.random() > 0.5 ? '#ff2a6d' : '#05d9e8',
+                    alpha: Math.random() * 0.5 + 0.2
+                };
+            }
+
+            update() {
+                const ctx = this.ctx;
+                ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+                for (const p of this.particles) {
+                    p.x += p.speedX;
+                    p.y += p.speedY;
+
+                    if (p.x < 0) p.x = this.canvas.width;
+                    if (p.x > this.canvas.width) p.x = 0;
+                    if (p.y < 0) p.y = this.canvas.height;
+                    if (p.y > this.canvas.height) p.y = 0;
+
+                    ctx.fillStyle = p.color;
+                    ctx.globalAlpha = p.alpha;
+                    ctx.shadowColor = p.color;
+                    ctx.shadowBlur = 10;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                ctx.globalAlpha = 1;
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        // ============================================
+        // MAIN APPLICATION
+        // ============================================
+        const mazeCanvas = document.getElementById('maze');
+        const particleCanvas = document.getElementById('particles');
+        const statusEl = document.getElementById('status');
+        const generateBtn = document.getElementById('generateBtn');
+        const solveBtn = document.getElementById('solveBtn');
+
+        // Calculate maze size based on viewport
+        const maxWidth = Math.min(window.innerWidth - 60, 800);
+        const maxHeight = Math.min(window.innerHeight - 250, 600);
+        const cols = Math.floor(maxWidth / CONFIG.cellSize);
+        const rows = Math.floor(maxHeight / CONFIG.cellSize);
+
+        let maze = new Maze(mazeCanvas, cols, rows);
+        const particles = new ParticleSystem(particleCanvas);
+
+        let animationId = null;
+        let lastTime = 0;
+
+        function updateStatus(text) {
+            statusEl.textContent = text;
+        }
+
+        function animate(time) {
+            animationId = requestAnimationFrame(animate);
+
+            // Update particles
+            particles.update();
+
+            // Handle maze generation
+            if (maze.generating) {
+                for (let i = 0; i < CONFIG.genSpeed; i++) {
+                    if (!maze.generateStep()) {
+                        updateStatus('MAZE COMPLETE // READY TO SOLVE');
+                        break;
+                    }
+                }
+            }
+
+            // Handle maze solving
+            if (maze.solving) {
+                for (let i = 0; i < CONFIG.solveSpeed; i++) {
+                    if (!maze.solveStep()) {
+                        if (maze.solved) {
+                            updateStatus(`PATH FOUND // ${maze.path.length} CELLS`);
+                        } else {
+                            updateStatus('NO SOLUTION EXISTS');
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Draw maze
+            maze.draw(time);
+
+            lastTime = time;
+        }
+
+        function generate() {
+            maze = new Maze(mazeCanvas, cols, rows);
+            maze.generating = true;
+            updateStatus('GENERATING LABYRINTH...');
+        }
+
+        function solve() {
+            if (maze.generating) return;
+            if (maze.solved) {
+                // Reset and solve again
+                for (const cell of maze.grid) {
+                    cell.explored = false;
+                    cell.inPath = false;
+                    cell.parent = null;
+                }
+                maze.path = [];
+                maze.solved = false;
+            }
+
+            maze.initSolve();
+            maze.solving = true;
+            updateStatus('CALCULATING OPTIMAL PATH...');
+        }
+
+        // Event listeners
+        generateBtn.addEventListener('click', generate);
+        solveBtn.addEventListener('click', solve);
+
+        mazeCanvas.addEventListener('click', () => {
+            if (!maze.generating && !maze.solving) {
+                generate();
+            }
+        });
+
+        // Keyboard controls
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'g' || e.key === 'G') generate();
+            if (e.key === 's' || e.key === 'S') solve();
+            if (e.key === ' ') {
+                e.preventDefault();
+                if (maze.generating || maze.solving) return;
+                generate();
+            }
+        });
+
+        // Start
+        updateStatus('PRESS GENERATE OR CLICK MAZE');
+        animate(0);
+    </script>
+</body>
+</html>

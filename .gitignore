@@ -1,0 +1,4 @@
+node_modules/
+package-lock.json
+perf-screenshot*.png
+perf-test.js

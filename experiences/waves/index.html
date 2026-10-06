@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wave Interference | Neon City</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a12;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            cursor: crosshair;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        .ui-overlay {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            color: #05d9e8;
+            text-shadow: 0 0 10px #05d9e8, 0 0 20px #05d9e8;
+            pointer-events: none;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 300;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+
+        .instructions {
+            font-size: 0.75rem;
+            opacity: 0.7;
+            letter-spacing: 0.1em;
+        }
+
+        .stats {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: #ff2a6d;
+            font-size: 0.7rem;
+            text-shadow: 0 0 8px #ff2a6d;
+            letter-spacing: 0.05em;
+            pointer-events: none;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 100;
+        }
+
+        button {
+            background: transparent;
+            border: 1px solid #05d9e8;
+            color: #05d9e8;
+            padding: 8px 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.7rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            background: #05d9e8;
+            color: #0a0a12;
+            box-shadow: 0 0 20px #05d9e8;
+        }
+
+        .glow-line {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #ff2a6d, #05d9e8, transparent);
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="glow-line"></div>
+
+    <div class="ui-overlay">
+        <h1>Wave Interference</h1>
+        <p class="instructions">Click to create wave emitters</p>
+    </div>
+
+    <div class="stats" id="stats">
+        <div>EMITTERS: <span id="emitterCount">0</span></div>
+        <div>FPS: <span id="fps">60</span></div>
+    </div>
+
+    <div class="controls">
+        <button id="clearBtn">Clear All</button>
+        <button id="pauseBtn">Pause</button>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+        let emitters = [];
+        let paused = false;
+        let lastTime = 0;
+        let frameCount = 0;
+        let fpsTime = 0;
+
+        // Wave parameters
+        const WAVE_SPEED = 150;
+        const WAVE_FREQUENCY = 0.015;
+        const WAVE_DECAY = 0.0008;
+        const RESOLUTION = 4; // Pixel sampling resolution for performance
+
+        // Colors
+        const NEON_PINK = { r: 255, g: 42, b: 109 };
+        const NEON_CYAN = { r: 5, g: 217, b: 232 };
+        const BG_COLOR = { r: 10, g: 10, b: 18 };
+
+        class WaveEmitter {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.birthTime = performance.now();
+                this.amplitude = 1.0;
+                this.frequency = WAVE_FREQUENCY + (Math.random() - 0.5) * 0.005;
+                this.phase = Math.random() * Math.PI * 2;
+                this.color = Math.random() > 0.5 ? NEON_PINK : NEON_CYAN;
+            }
+
+            getWaveAt(x, y, time) {
+                const dx = x - this.x;
+                const dy = y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                const age = (time - this.birthTime) / 1000;
+                const waveRadius = age * WAVE_SPEED;
+
+                // Only calculate if the wave has reached this point
+                if (distance > waveRadius) return 0;
+
+                // Wave decay based on distance and age
+                const decay = Math.exp(-distance * WAVE_DECAY) * Math.exp(-age * 0.1);
+
+                // Sinusoidal wave
+                const wave = Math.sin(distance * this.frequency - age * 5 + this.phase);
+
+                return wave * decay * this.amplitude;
+            }
+        }
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+
+        function addEmitter(x, y) {
+            emitters.push(new WaveEmitter(x, y));
+
+            // Limit emitters for performance
+            if (emitters.length > 15) {
+                emitters.shift();
+            }
+
+            updateStats();
+        }
+
+        function clearEmitters() {
+            emitters = [];
+            updateStats();
+        }
+
+        function updateStats() {
+            document.getElementById('emitterCount').textContent = emitters.length;
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        function render(time) {
+            if (!paused) {
+                // Create image data for direct pixel manipulation
+                const imageData = ctx.createImageData(width, height);
+                const data = imageData.data;
+
+                // Sample at lower resolution and interpolate for performance
+                const waveField = [];
+                const cols = Math.ceil(width / RESOLUTION);
+                const rows = Math.ceil(height / RESOLUTION);
+
+                // Calculate wave field at sample points
+                for (let row = 0; row <= rows; row++) {
+                    waveField[row] = [];
+                    for (let col = 0; col <= cols; col++) {
+                        const x = col * RESOLUTION;
+                        const y = row * RESOLUTION;
+
+                        let totalWave = 0;
+                        let pinkInfluence = 0;
+                        let cyanInfluence = 0;
+
+                        for (const emitter of emitters) {
+                            const wave = emitter.getWaveAt(x, y, time);
+                            totalWave += wave;
+
+                            if (emitter.color === NEON_PINK) {
+                                pinkInfluence += Math.abs(wave);
+                            } else {
+                                cyanInfluence += Math.abs(wave);
+                            }
+                        }
+
+                        waveField[row][col] = {
+                            wave: totalWave,
+                            pink: pinkInfluence,
+                            cyan: cyanInfluence
+                        };
+                    }
+                }
+
+                // Render pixels with interpolation
+                for (let y = 0; y < height; y++) {
+                    for (let x = 0; x < width; x++) {
+                        const col = x / RESOLUTION;
+                        const row = y / RESOLUTION;
+
+                        const col0 = Math.floor(col);
+                        const row0 = Math.floor(row);
+                        const col1 = Math.min(col0 + 1, cols);
+                        const row1 = Math.min(row0 + 1, rows);
+
+                        const tx = col - col0;
+                        const ty = row - row0;
+
+                        // Bilinear interpolation
+                        const v00 = waveField[row0][col0];
+                        const v10 = waveField[row0][col1];
+                        const v01 = waveField[row1][col0];
+                        const v11 = waveField[row1][col1];
+
+                        const totalWave = lerp(
+                            lerp(v00.wave, v10.wave, tx),
+                            lerp(v01.wave, v11.wave, tx),
+                            ty
+                        );
+
+                        const pinkInfluence = lerp(
+                            lerp(v00.pink, v10.pink, tx),
+                            lerp(v01.pink, v11.pink, tx),
+                            ty
+                        );
+
+                        const cyanInfluence = lerp(
+                            lerp(v00.cyan, v10.cyan, tx),
+                            lerp(v01.cyan, v11.cyan, tx),
+                            ty
+                        );
+
+                        // Calculate color based on interference
+                        const intensity = (totalWave + 1) * 0.5; // Normalize to 0-1
+                        const absWave = Math.abs(totalWave);
+
+                        // Constructive interference glows brighter
+                        const constructive = absWave > 0.8 ? (absWave - 0.8) * 5 : 0;
+
+                        // Destructive interference creates dark nodes
+                        const destructive = absWave < 0.1 ? 1 - absWave * 10 : 0;
+
+                        // Color mixing based on emitter influence
+                        const totalInfluence = pinkInfluence + cyanInfluence + 0.001;
+                        const pinkRatio = pinkInfluence / totalInfluence;
+                        const cyanRatio = cyanInfluence / totalInfluence;
+
+                        // Base color from wave height
+                        let r = BG_COLOR.r;
+                        let g = BG_COLOR.g;
+                        let b = BG_COLOR.b;
+
+                        if (emitters.length > 0) {
+                            // Add wave color
+                            const waveIntensity = absWave * 0.8 + constructive * 0.5;
+
+                            r += (NEON_PINK.r * pinkRatio + NEON_CYAN.r * cyanRatio) * waveIntensity * 0.6;
+                            g += (NEON_PINK.g * pinkRatio + NEON_CYAN.g * cyanRatio) * waveIntensity * 0.6;
+                            b += (NEON_PINK.b * pinkRatio + NEON_CYAN.b * cyanRatio) * waveIntensity * 0.6;
+
+                            // Bright highlights for constructive interference
+                            if (constructive > 0) {
+                                const highlightIntensity = constructive * 0.8;
+                                r += 255 * highlightIntensity * 0.3;
+                                g += 255 * highlightIntensity * 0.3;
+                                b += 255 * highlightIntensity * 0.3;
+                            }
+
+                            // Darker areas for destructive interference
+                            if (destructive > 0) {
+                                r *= (1 - destructive * 0.5);
+                                g *= (1 - destructive * 0.5);
+                                b *= (1 - destructive * 0.5);
+                            }
+                        }
+
+                        const idx = (y * width + x) * 4;
+                        data[idx] = Math.min(255, Math.max(0, r));
+                        data[idx + 1] = Math.min(255, Math.max(0, g));
+                        data[idx + 2] = Math.min(255, Math.max(0, b));
+                        data[idx + 3] = 255;
+                    }
+                }
+
+                ctx.putImageData(imageData, 0, 0);
+
+                // Draw emitter markers
+                for (const emitter of emitters) {
+                    const age = (time - emitter.birthTime) / 1000;
+                    const pulseSize = 5 + Math.sin(age * 8) * 2;
+
+                    ctx.beginPath();
+                    ctx.arc(emitter.x, emitter.y, pulseSize, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(${emitter.color.r}, ${emitter.color.g}, ${emitter.color.b}, 0.8)`;
+                    ctx.fill();
+
+                    // Glow effect
+                    ctx.beginPath();
+                    ctx.arc(emitter.x, emitter.y, pulseSize + 5, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(${emitter.color.r}, ${emitter.color.g}, ${emitter.color.b}, 0.2)`;
+                    ctx.fill();
+                }
+
+                // Remove old emitters (after 30 seconds)
+                emitters = emitters.filter(e => (time - e.birthTime) < 30000);
+                updateStats();
+            }
+
+            // FPS calculation
+            frameCount++;
+            if (time - fpsTime >= 1000) {
+                document.getElementById('fps').textContent = frameCount;
+                frameCount = 0;
+                fpsTime = time;
+            }
+
+            requestAnimationFrame(render);
+        }
+
+        // Event listeners
+        canvas.addEventListener('click', (e) => {
+            addEmitter(e.clientX, e.clientY);
+        });
+
+        document.getElementById('clearBtn').addEventListener('click', clearEmitters);
+
+        document.getElementById('pauseBtn').addEventListener('click', function() {
+            paused = !paused;
+            this.textContent = paused ? 'Resume' : 'Pause';
+        });
+
+        window.addEventListener('resize', resize);
+
+        // Initialize
+        resize();
+
+        // Add a few initial emitters for visual interest
+        setTimeout(() => {
+            addEmitter(width * 0.3, height * 0.4);
+        }, 100);
+        setTimeout(() => {
+            addEmitter(width * 0.7, height * 0.6);
+        }, 500);
+        setTimeout(() => {
+            addEmitter(width * 0.5, height * 0.5);
+        }, 900);
+
+        // Start animation
+        requestAnimationFrame(render);
+    </script>
+</body>
+</html>

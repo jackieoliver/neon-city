@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Pendulum Wave</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #resetBtn {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 32px;
+            background: transparent;
+            border: 2px solid #05d9e8;
+            color: #05d9e8;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 20px rgba(5, 217, 232, 0.3),
+                        inset 0 0 20px rgba(5, 217, 232, 0.1);
+        }
+
+        #resetBtn:hover {
+            background: rgba(5, 217, 232, 0.2);
+            box-shadow: 0 0 40px rgba(5, 217, 232, 0.5),
+                        inset 0 0 30px rgba(5, 217, 232, 0.2);
+        }
+
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ff2a6d;
+            font-size: 12px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            text-shadow: 0 0 10px rgba(255, 42, 109, 0.8);
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">Pendulum Wave Harmonics</div>
+    <canvas id="canvas"></canvas>
+    <button id="resetBtn">Reset Wave</button>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const resetBtn = document.getElementById('resetBtn');
+
+        let width, height;
+        let pendulums = [];
+        let startTime;
+        let trailCanvas, trailCtx;
+
+        // Configuration
+        const NUM_PENDULUMS = 18;
+        const BASE_PERIOD = 60; // Base period in frames (at 60fps = 1 second)
+        const PERIOD_INCREMENT = 2; // Each pendulum has slightly different period
+        const TRAIL_FADE = 0.015;
+        const BOB_RADIUS = 8;
+
+        // Colors
+        const COLOR_PRIMARY = '#ff2a6d';
+        const COLOR_SECONDARY = '#05d9e8';
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+
+            // Create trail canvas
+            trailCanvas = document.createElement('canvas');
+            trailCanvas.width = width;
+            trailCanvas.height = height;
+            trailCtx = trailCanvas.getContext('2d');
+        }
+
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : null;
+        }
+
+        function getGradientColor(t) {
+            const c1 = hexToRgb(COLOR_PRIMARY);
+            const c2 = hexToRgb(COLOR_SECONDARY);
+            return {
+                r: Math.round(lerp(c1.r, c2.r, t)),
+                g: Math.round(lerp(c1.g, c2.g, t)),
+                b: Math.round(lerp(c1.b, c2.b, t))
+            };
+        }
+
+        class Pendulum {
+            constructor(index, total) {
+                this.index = index;
+                this.total = total;
+
+                // Position from left to right
+                const spacing = width / (total + 1);
+                this.anchorX = spacing * (index + 1);
+                this.anchorY = height * 0.15;
+
+                // Length increases for each pendulum
+                const minLength = height * 0.2;
+                const maxLength = height * 0.6;
+                this.length = lerp(minLength, maxLength, index / (total - 1));
+
+                // Period varies - creates the wave effect
+                // T = 2*pi*sqrt(L/g), but we're manipulating it for visual effect
+                this.period = BASE_PERIOD + index * PERIOD_INCREMENT;
+
+                // Color gradient based on position
+                const colorT = index / (total - 1);
+                this.color = getGradientColor(colorT);
+
+                // Initial angle (all start at max amplitude)
+                this.maxAngle = Math.PI / 4;
+                this.angle = this.maxAngle;
+
+                // Trail
+                this.trail = [];
+                this.maxTrailLength = 50;
+            }
+
+            update(time) {
+                // Simple harmonic motion: angle = A * cos(2*pi*t/T)
+                const omega = (2 * Math.PI) / this.period;
+                this.angle = this.maxAngle * Math.cos(omega * time);
+
+                // Calculate bob position
+                this.bobX = this.anchorX + Math.sin(this.angle) * this.length;
+                this.bobY = this.anchorY + Math.cos(this.angle) * this.length;
+
+                // Add to trail
+                this.trail.push({ x: this.bobX, y: this.bobY });
+                if (this.trail.length > this.maxTrailLength) {
+                    this.trail.shift();
+                }
+            }
+
+            drawTrail(ctx) {
+                if (this.trail.length < 2) return;
+
+                for (let i = 1; i < this.trail.length; i++) {
+                    const alpha = (i / this.trail.length) * 0.8;
+                    const point = this.trail[i];
+                    const prevPoint = this.trail[i - 1];
+
+                    ctx.beginPath();
+                    ctx.moveTo(prevPoint.x, prevPoint.y);
+                    ctx.lineTo(point.x, point.y);
+                    ctx.strokeStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${alpha})`;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            }
+
+            draw(ctx) {
+                const { r, g, b } = this.color;
+
+                // Draw string
+                ctx.beginPath();
+                ctx.moveTo(this.anchorX, this.anchorY);
+                ctx.lineTo(this.bobX, this.bobY);
+                ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.5)`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                // Draw anchor point
+                ctx.beginPath();
+                ctx.arc(this.anchorX, this.anchorY, 3, 0, Math.PI * 2);
+                ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                ctx.fill();
+
+                // Draw bob glow
+                const gradient = ctx.createRadialGradient(
+                    this.bobX, this.bobY, 0,
+                    this.bobX, this.bobY, BOB_RADIUS * 3
+                );
+                gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.8)`);
+                gradient.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, 0.3)`);
+                gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+
+                ctx.beginPath();
+                ctx.arc(this.bobX, this.bobY, BOB_RADIUS * 3, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // Draw bob
+                ctx.beginPath();
+                ctx.arc(this.bobX, this.bobY, BOB_RADIUS, 0, Math.PI * 2);
+                ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                ctx.shadowColor = `rgb(${r}, ${g}, ${b})`;
+                ctx.shadowBlur = 20;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        function init() {
+            resize();
+            pendulums = [];
+            startTime = performance.now();
+
+            // Clear trail canvas
+            if (trailCtx) {
+                trailCtx.fillStyle = '#0a0a0f';
+                trailCtx.fillRect(0, 0, width, height);
+            }
+
+            for (let i = 0; i < NUM_PENDULUMS; i++) {
+                pendulums.push(new Pendulum(i, NUM_PENDULUMS));
+            }
+        }
+
+        function drawGrid() {
+            ctx.strokeStyle = 'rgba(5, 217, 232, 0.05)';
+            ctx.lineWidth = 1;
+
+            // Horizontal lines
+            for (let y = 0; y < height; y += 50) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+
+            // Vertical lines
+            for (let x = 0; x < width; x += 50) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+        }
+
+        function drawMountBar() {
+            // Draw the mounting bar at the top
+            const barY = height * 0.15;
+
+            ctx.beginPath();
+            ctx.moveTo(width * 0.05, barY);
+            ctx.lineTo(width * 0.95, barY);
+
+            const gradient = ctx.createLinearGradient(width * 0.05, 0, width * 0.95, 0);
+            gradient.addColorStop(0, COLOR_PRIMARY);
+            gradient.addColorStop(0.5, COLOR_SECONDARY);
+            gradient.addColorStop(1, COLOR_PRIMARY);
+
+            ctx.strokeStyle = gradient;
+            ctx.lineWidth = 3;
+            ctx.shadowColor = COLOR_SECONDARY;
+            ctx.shadowBlur = 15;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+
+        let lastTime = 0;
+        let frameCount = 0;
+
+        function animate(currentTime) {
+            // Calculate frame-independent time
+            const elapsed = (currentTime - startTime) / 16.667; // Convert to "frames" at 60fps
+
+            // Fade trail canvas
+            trailCtx.fillStyle = 'rgba(10, 10, 15, ' + TRAIL_FADE + ')';
+            trailCtx.fillRect(0, 0, width, height);
+
+            // Draw trails on trail canvas
+            pendulums.forEach(p => {
+                p.update(elapsed);
+                p.drawTrail(trailCtx);
+            });
+
+            // Clear main canvas
+            ctx.fillStyle = '#0a0a0f';
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw background grid
+            drawGrid();
+
+            // Draw trail layer
+            ctx.drawImage(trailCanvas, 0, 0);
+
+            // Draw mounting bar
+            drawMountBar();
+
+            // Draw pendulums
+            pendulums.forEach(p => p.draw(ctx));
+
+            // Draw connecting line between all bobs
+            ctx.beginPath();
+            ctx.moveTo(pendulums[0].bobX, pendulums[0].bobY);
+            for (let i = 1; i < pendulums.length; i++) {
+                ctx.lineTo(pendulums[i].bobX, pendulums[i].bobY);
+            }
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            requestAnimationFrame(animate);
+        }
+
+        // Event listeners
+        window.addEventListener('resize', () => {
+            resize();
+            init();
+        });
+
+        resetBtn.addEventListener('click', init);
+
+        // Start
+        init();
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>

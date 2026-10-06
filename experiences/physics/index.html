@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Physics Sandbox</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            cursor: crosshair;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .ui {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            color: #05d9e8;
+            text-shadow: 0 0 10px #05d9e8;
+        }
+
+        .ui h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            color: #ff2a6d;
+            text-shadow: 0 0 20px #ff2a6d;
+        }
+
+        .ui p {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-bottom: 5px;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 100;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            background: transparent;
+            border: 2px solid #05d9e8;
+            color: #05d9e8;
+            font-family: inherit;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-shadow: 0 0 10px #05d9e8;
+            box-shadow: 0 0 10px rgba(5, 217, 232, 0.3);
+        }
+
+        .btn:hover {
+            background: rgba(5, 217, 232, 0.2);
+            box-shadow: 0 0 20px rgba(5, 217, 232, 0.5);
+        }
+
+        .btn.active {
+            background: #05d9e8;
+            color: #0a0a0f;
+            text-shadow: none;
+        }
+
+        .btn.danger {
+            border-color: #ff2a6d;
+            color: #ff2a6d;
+            text-shadow: 0 0 10px #ff2a6d;
+            box-shadow: 0 0 10px rgba(255, 42, 109, 0.3);
+        }
+
+        .btn.danger:hover {
+            background: rgba(255, 42, 109, 0.2);
+            box-shadow: 0 0 20px rgba(255, 42, 109, 0.5);
+        }
+
+        .stats {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: #05d9e8;
+            font-size: 12px;
+            text-align: right;
+            text-shadow: 0 0 10px #05d9e8;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div class="ui">
+        <h1>NEON PHYSICS</h1>
+        <p>Click to spawn shapes</p>
+        <p>Drag objects to move them</p>
+        <p>Shapes collide and stack</p>
+    </div>
+
+    <div class="controls">
+        <button class="btn active" id="circleBtn">Circle</button>
+        <button class="btn" id="boxBtn">Box</button>
+        <button class="btn" id="gravityBtn">Gravity: ON</button>
+        <button class="btn danger" id="clearBtn">Clear All</button>
+    </div>
+
+    <div class="stats">
+        <div id="fps">FPS: 60</div>
+        <div id="objectCount">Objects: 0</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+
+        // Physics constants
+        const GRAVITY = 0.5;
+        const FRICTION = 0.99;
+        const BOUNCE = 0.7;
+        const AIR_RESISTANCE = 0.999;
+
+        // Colors
+        const NEON_PINK = '#ff2a6d';
+        const NEON_CYAN = '#05d9e8';
+        const COLORS = [NEON_PINK, NEON_CYAN, '#d300c5', '#00ff9f', '#fffc00'];
+
+        // State
+        let objects = [];
+        let trails = [];
+        let shapeType = 'circle';
+        let gravityEnabled = true;
+        let draggingObject = null;
+        let mouseX = 0;
+        let mouseY = 0;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
+
+        // Physics object class
+        class PhysicsObject {
+            constructor(x, y, type, size) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 10;
+                this.vy = (Math.random() - 0.5) * 5;
+                this.type = type;
+                this.size = size || 20 + Math.random() * 30;
+                this.rotation = 0;
+                this.angularVel = (Math.random() - 0.5) * 0.2;
+                this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+                this.mass = this.size * this.size * 0.01;
+                this.id = Math.random();
+            }
+
+            update() {
+                // Apply gravity
+                if (gravityEnabled) {
+                    this.vy += GRAVITY;
+                }
+
+                // Apply air resistance
+                this.vx *= AIR_RESISTANCE;
+                this.vy *= AIR_RESISTANCE;
+
+                // Update position
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Update rotation
+                this.rotation += this.angularVel;
+                this.angularVel *= 0.98;
+
+                // Add trail for fast-moving objects
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (speed > 5) {
+                    trails.push({
+                        x: this.x,
+                        y: this.y,
+                        size: this.size * 0.5,
+                        color: this.color,
+                        alpha: 0.5,
+                        type: this.type
+                    });
+                }
+
+                // Wall collisions
+                this.wallCollision();
+            }
+
+            wallCollision() {
+                const radius = this.type === 'circle' ? this.size : this.size * 0.7;
+
+                // Bottom
+                if (this.y + radius > height) {
+                    this.y = height - radius;
+                    this.vy = -this.vy * BOUNCE;
+                    this.vx *= FRICTION;
+                    this.angularVel += this.vx * 0.01;
+                }
+
+                // Top
+                if (this.y - radius < 0) {
+                    this.y = radius;
+                    this.vy = -this.vy * BOUNCE;
+                }
+
+                // Right
+                if (this.x + radius > width) {
+                    this.x = width - radius;
+                    this.vx = -this.vx * BOUNCE;
+                }
+
+                // Left
+                if (this.x - radius < 0) {
+                    this.x = radius;
+                    this.vx = -this.vx * BOUNCE;
+                }
+            }
+
+            collideWith(other) {
+                const dx = other.x - this.x;
+                const dy = other.y - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const minDist = this.size + other.size;
+
+                if (dist < minDist && dist > 0) {
+                    // Collision normal
+                    const nx = dx / dist;
+                    const ny = dy / dist;
+
+                    // Relative velocity
+                    const dvx = this.vx - other.vx;
+                    const dvy = this.vy - other.vy;
+                    const dvn = dvx * nx + dvy * ny;
+
+                    // Don't resolve if objects are moving apart
+                    if (dvn > 0) return;
+
+                    // Collision impulse
+                    const restitution = BOUNCE;
+                    const impulse = -(1 + restitution) * dvn / (1/this.mass + 1/other.mass);
+
+                    // Apply impulse
+                    this.vx += impulse * nx / this.mass;
+                    this.vy += impulse * ny / this.mass;
+                    other.vx -= impulse * nx / other.mass;
+                    other.vy -= impulse * ny / other.mass;
+
+                    // Separate objects
+                    const overlap = minDist - dist;
+                    const totalMass = this.mass + other.mass;
+                    this.x -= overlap * nx * (other.mass / totalMass);
+                    this.y -= overlap * ny * (other.mass / totalMass);
+                    other.x += overlap * nx * (this.mass / totalMass);
+                    other.y += overlap * ny * (this.mass / totalMass);
+
+                    // Add angular velocity from collision
+                    this.angularVel += (Math.random() - 0.5) * 0.1;
+                    other.angularVel += (Math.random() - 0.5) * 0.1;
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+
+                // Glow effect
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 20;
+
+                ctx.fillStyle = this.color;
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 2;
+
+                if (this.type === 'circle') {
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.size, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.globalAlpha = 0.3;
+                    ctx.fillStyle = '#fff';
+                    ctx.beginPath();
+                    ctx.arc(-this.size * 0.3, -this.size * 0.3, this.size * 0.3, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    ctx.fillRect(-this.size, -this.size, this.size * 2, this.size * 2);
+                    ctx.globalAlpha = 0.3;
+                    ctx.fillStyle = '#fff';
+                    ctx.fillRect(-this.size * 0.7, -this.size * 0.7, this.size * 0.6, this.size * 0.6);
+                }
+
+                ctx.restore();
+            }
+
+            contains(x, y) {
+                const dx = x - this.x;
+                const dy = y - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                return dist < this.size * 1.2;
+            }
+        }
+
+        // Draw trails
+        function drawTrails() {
+            for (let i = trails.length - 1; i >= 0; i--) {
+                const trail = trails[i];
+                ctx.save();
+                ctx.globalAlpha = trail.alpha;
+                ctx.shadowColor = trail.color;
+                ctx.shadowBlur = 10;
+                ctx.fillStyle = trail.color;
+
+                if (trail.type === 'circle') {
+                    ctx.beginPath();
+                    ctx.arc(trail.x, trail.y, trail.size, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    ctx.fillRect(trail.x - trail.size, trail.y - trail.size, trail.size * 2, trail.size * 2);
+                }
+
+                ctx.restore();
+
+                trail.alpha -= 0.05;
+                trail.size *= 0.95;
+
+                if (trail.alpha <= 0) {
+                    trails.splice(i, 1);
+                }
+            }
+        }
+
+        // Draw grid background
+        function drawGrid() {
+            ctx.strokeStyle = 'rgba(5, 217, 232, 0.1)';
+            ctx.lineWidth = 1;
+
+            const gridSize = 50;
+            for (let x = 0; x < width; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+            for (let y = 0; y < height; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+        }
+
+        // Draw floor glow
+        function drawFloorGlow() {
+            const gradient = ctx.createLinearGradient(0, height - 100, 0, height);
+            gradient.addColorStop(0, 'transparent');
+            gradient.addColorStop(1, 'rgba(255, 42, 109, 0.2)');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, height - 100, width, 100);
+
+            ctx.strokeStyle = NEON_PINK;
+            ctx.shadowColor = NEON_PINK;
+            ctx.shadowBlur = 20;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(0, height);
+            ctx.lineTo(width, height);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+
+        // Main update loop
+        function update() {
+            // Update all objects
+            for (const obj of objects) {
+                if (obj !== draggingObject) {
+                    obj.update();
+                }
+            }
+
+            // Check collisions between all object pairs
+            for (let i = 0; i < objects.length; i++) {
+                for (let j = i + 1; j < objects.length; j++) {
+                    objects[i].collideWith(objects[j]);
+                }
+            }
+
+            // Update dragged object
+            if (draggingObject) {
+                const dx = mouseX - draggingObject.x;
+                const dy = mouseY - draggingObject.y;
+                draggingObject.vx = dx * 0.5;
+                draggingObject.vy = dy * 0.5;
+                draggingObject.x = mouseX;
+                draggingObject.y = mouseY;
+            }
+        }
+
+        // Main draw loop
+        function draw() {
+            ctx.fillStyle = '#0a0a0f';
+            ctx.fillRect(0, 0, width, height);
+
+            drawGrid();
+            drawFloorGlow();
+            drawTrails();
+
+            for (const obj of objects) {
+                obj.draw();
+            }
+        }
+
+        // FPS calculation
+        function updateFPS() {
+            frameCount++;
+            const currentTime = performance.now();
+            if (currentTime - lastTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastTime = currentTime;
+                document.getElementById('fps').textContent = `FPS: ${fps}`;
+            }
+            document.getElementById('objectCount').textContent = `Objects: ${objects.length}`;
+        }
+
+        // Animation loop
+        function animate() {
+            update();
+            draw();
+            updateFPS();
+            requestAnimationFrame(animate);
+        }
+
+        // Event listeners
+        canvas.addEventListener('mousedown', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+
+            // Check if clicking on an object
+            for (let i = objects.length - 1; i >= 0; i--) {
+                if (objects[i].contains(mouseX, mouseY)) {
+                    draggingObject = objects[i];
+                    canvas.style.cursor = 'grabbing';
+                    return;
+                }
+            }
+
+            // Spawn new object
+            const newObj = new PhysicsObject(mouseX, mouseY, shapeType);
+            objects.push(newObj);
+
+            // Limit max objects for performance
+            if (objects.length > 100) {
+                objects.shift();
+            }
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            lastMouseX = mouseX;
+            lastMouseY = mouseY;
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            if (draggingObject) {
+                draggingObject.vx = (mouseX - lastMouseX) * 2;
+                draggingObject.vy = (mouseY - lastMouseY) * 2;
+            }
+            draggingObject = null;
+            canvas.style.cursor = 'crosshair';
+        });
+
+        // Touch support
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+
+            for (let i = objects.length - 1; i >= 0; i--) {
+                if (objects[i].contains(mouseX, mouseY)) {
+                    draggingObject = objects[i];
+                    return;
+                }
+            }
+
+            const newObj = new PhysicsObject(mouseX, mouseY, shapeType);
+            objects.push(newObj);
+            if (objects.length > 100) objects.shift();
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            lastMouseX = mouseX;
+            lastMouseY = mouseY;
+            mouseX = touch.clientX;
+            mouseY = touch.clientY;
+        });
+
+        canvas.addEventListener('touchend', () => {
+            if (draggingObject) {
+                draggingObject.vx = (mouseX - lastMouseX) * 2;
+                draggingObject.vy = (mouseY - lastMouseY) * 2;
+            }
+            draggingObject = null;
+        });
+
+        // Button handlers
+        document.getElementById('circleBtn').addEventListener('click', () => {
+            shapeType = 'circle';
+            document.getElementById('circleBtn').classList.add('active');
+            document.getElementById('boxBtn').classList.remove('active');
+        });
+
+        document.getElementById('boxBtn').addEventListener('click', () => {
+            shapeType = 'box';
+            document.getElementById('boxBtn').classList.add('active');
+            document.getElementById('circleBtn').classList.remove('active');
+        });
+
+        document.getElementById('gravityBtn').addEventListener('click', () => {
+            gravityEnabled = !gravityEnabled;
+            document.getElementById('gravityBtn').textContent = `Gravity: ${gravityEnabled ? 'ON' : 'OFF'}`;
+        });
+
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            objects = [];
+            trails = [];
+        });
+
+        // Resize handler
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+
+        // Start animation
+        animate();
+
+        // Spawn some initial objects
+        for (let i = 0; i < 5; i++) {
+            setTimeout(() => {
+                const x = Math.random() * (width - 200) + 100;
+                const y = Math.random() * (height / 3) + 50;
+                const type = Math.random() > 0.5 ? 'circle' : 'box';
+                objects.push(new PhysicsObject(x, y, type));
+            }, i * 200);
+        }
+    </script>
+</body>
+</html>

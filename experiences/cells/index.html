@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cell Division - Neon Biology</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: #05d9e8;
+            font-size: 12px;
+            opacity: 0.7;
+            pointer-events: none;
+            text-shadow: 0 0 10px #05d9e8;
+        }
+
+        #instructions {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: #00ff9f;
+            font-size: 14px;
+            opacity: 0.8;
+            pointer-events: none;
+            text-shadow: 0 0 10px #00ff9f;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="instructions">Click any cell to trigger mitosis</div>
+    <div id="info">Cells: <span id="count">0</span></div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const countDisplay = document.getElementById('count');
+
+        let width, height;
+        const cells = [];
+        const COLORS = ['#ff2a6d', '#05d9e8', '#00ff9f'];
+        const MAX_CELLS = 100;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+
+        resize();
+        window.addEventListener('resize', resize);
+
+        class Cell {
+            constructor(x, y, radius, color) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius || 20 + Math.random() * 15;
+                this.targetRadius = this.radius;
+                this.maxRadius = 45 + Math.random() * 20;
+                this.color = color || COLORS[Math.floor(Math.random() * COLORS.length)];
+                this.vx = (Math.random() - 0.5) * 0.5;
+                this.vy = (Math.random() - 0.5) * 0.5;
+                this.growthRate = 0.01 + Math.random() * 0.02;
+                this.phase = Math.random() * Math.PI * 2;
+                this.pulseSpeed = 0.02 + Math.random() * 0.02;
+                this.membranePoints = 32;
+                this.noiseOffsets = [];
+                for (let i = 0; i < this.membranePoints; i++) {
+                    this.noiseOffsets.push(Math.random() * 1000);
+                }
+                this.dividing = false;
+                this.divisionProgress = 0;
+                this.divisionAngle = Math.random() * Math.PI * 2;
+                this.nucleus = {
+                    offset: { x: 0, y: 0 },
+                    radius: this.radius * 0.3
+                };
+                this.organelles = [];
+                for (let i = 0; i < 3 + Math.floor(Math.random() * 4); i++) {
+                    this.organelles.push({
+                        angle: Math.random() * Math.PI * 2,
+                        dist: 0.3 + Math.random() * 0.4,
+                        size: 2 + Math.random() * 4,
+                        phase: Math.random() * Math.PI * 2
+                    });
+                }
+            }
+
+            update(time) {
+                // Organic pulsing
+                this.phase += this.pulseSpeed;
+
+                // Growth
+                if (!this.dividing && this.radius < this.maxRadius) {
+                    this.radius += this.growthRate;
+                    this.nucleus.radius = this.radius * 0.3;
+                }
+
+                // Auto-divide when mature
+                if (!this.dividing && this.radius >= this.maxRadius * 0.95 && cells.length < MAX_CELLS) {
+                    this.startDivision();
+                }
+
+                // Division animation
+                if (this.dividing) {
+                    this.divisionProgress += 0.008;
+                    if (this.divisionProgress >= 1) {
+                        this.completeDivision();
+                    }
+                }
+
+                // Movement
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Boundary bounce
+                const margin = this.radius;
+                if (this.x < margin) { this.x = margin; this.vx *= -0.5; }
+                if (this.x > width - margin) { this.x = width - margin; this.vx *= -0.5; }
+                if (this.y < margin) { this.y = margin; this.vy *= -0.5; }
+                if (this.y > height - margin) { this.y = height - margin; this.vy *= -0.5; }
+
+                // Friction
+                this.vx *= 0.99;
+                this.vy *= 0.99;
+
+                // Update organelle movement
+                this.organelles.forEach(o => {
+                    o.phase += 0.02;
+                    o.angle += 0.005;
+                });
+            }
+
+            startDivision() {
+                if (cells.length >= MAX_CELLS) return;
+                this.dividing = true;
+                this.divisionProgress = 0;
+                this.divisionAngle = Math.random() * Math.PI * 2;
+            }
+
+            completeDivision() {
+                this.dividing = false;
+                this.divisionProgress = 0;
+
+                const newRadius = this.radius * 0.6;
+                this.radius = newRadius;
+                this.nucleus.radius = newRadius * 0.3;
+
+                const offset = newRadius * 1.5;
+                const dx = Math.cos(this.divisionAngle) * offset;
+                const dy = Math.sin(this.divisionAngle) * offset;
+
+                // Push this cell
+                this.x -= dx * 0.5;
+                this.y -= dy * 0.5;
+                this.vx -= dx * 0.05;
+                this.vy -= dy * 0.05;
+
+                // Create daughter cell
+                if (cells.length < MAX_CELLS) {
+                    const daughter = new Cell(
+                        this.x + dx,
+                        this.y + dy,
+                        newRadius,
+                        this.color
+                    );
+                    daughter.vx = dx * 0.05;
+                    daughter.vy = dy * 0.05;
+                    cells.push(daughter);
+                }
+            }
+
+            collideWith(other) {
+                const dx = other.x - this.x;
+                const dy = other.y - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const minDist = this.radius + other.radius;
+
+                if (dist < minDist && dist > 0) {
+                    const overlap = (minDist - dist) / 2;
+                    const nx = dx / dist;
+                    const ny = dy / dist;
+
+                    // Soft push
+                    const pushForce = overlap * 0.1;
+                    this.x -= nx * pushForce;
+                    this.y -= ny * pushForce;
+                    other.x += nx * pushForce;
+                    other.y += ny * pushForce;
+
+                    this.vx -= nx * pushForce * 0.5;
+                    this.vy -= ny * pushForce * 0.5;
+                    other.vx += nx * pushForce * 0.5;
+                    other.vy += ny * pushForce * 0.5;
+                }
+            }
+
+            draw(time) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+
+                // Division pinching effect
+                if (this.dividing) {
+                    this.drawDividingCell(time);
+                } else {
+                    this.drawNormalCell(time);
+                }
+
+                ctx.restore();
+            }
+
+            drawNormalCell(time) {
+                const pulse = Math.sin(this.phase) * 0.05 + 1;
+                const currentRadius = this.radius * pulse;
+
+                // Outer glow
+                const gradient = ctx.createRadialGradient(0, 0, currentRadius * 0.5, 0, 0, currentRadius * 1.5);
+                gradient.addColorStop(0, this.hexToRgba(this.color, 0.3));
+                gradient.addColorStop(0.5, this.hexToRgba(this.color, 0.1));
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(0, 0, currentRadius * 1.5, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // Soft organic membrane
+                ctx.beginPath();
+                for (let i = 0; i <= this.membranePoints; i++) {
+                    const angle = (i / this.membranePoints) * Math.PI * 2;
+                    const noise = this.softNoise(this.noiseOffsets[i % this.membranePoints] + time * 0.001) * 5;
+                    const r = currentRadius + noise;
+                    const x = Math.cos(angle) * r;
+                    const y = Math.sin(angle) * r;
+
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                }
+                ctx.closePath();
+
+                // Cell body gradient
+                const bodyGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, currentRadius);
+                bodyGradient.addColorStop(0, this.hexToRgba(this.color, 0.4));
+                bodyGradient.addColorStop(0.7, this.hexToRgba(this.color, 0.2));
+                bodyGradient.addColorStop(1, this.hexToRgba(this.color, 0.1));
+                ctx.fillStyle = bodyGradient;
+                ctx.fill();
+
+                // Membrane stroke
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 2;
+                ctx.shadowColor = this.color;
+                ctx.shadowBlur = 15;
+                ctx.stroke();
+
+                // Draw nucleus
+                this.drawNucleus(currentRadius);
+
+                // Draw organelles
+                this.drawOrganelles(currentRadius);
+            }
+
+            drawDividingCell(time) {
+                const progress = this.divisionProgress;
+                const pinch = Math.sin(progress * Math.PI);
+                const separation = progress * this.radius * 0.8;
+
+                ctx.rotate(this.divisionAngle);
+
+                // Draw two forming daughter cells
+                for (let side = -1; side <= 1; side += 2) {
+                    ctx.save();
+                    ctx.translate(side * separation, 0);
+
+                    const pulse = Math.sin(this.phase) * 0.03 + 1;
+                    const daughterRadius = this.radius * (0.5 + progress * 0.1) * pulse;
+
+                    // Outer glow
+                    const gradient = ctx.createRadialGradient(0, 0, daughterRadius * 0.3, 0, 0, daughterRadius * 1.3);
+                    gradient.addColorStop(0, this.hexToRgba(this.color, 0.3));
+                    gradient.addColorStop(0.6, this.hexToRgba(this.color, 0.1));
+                    gradient.addColorStop(1, 'transparent');
+
+                    ctx.beginPath();
+                    ctx.arc(0, 0, daughterRadius * 1.3, 0, Math.PI * 2);
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+
+                    // Deformed membrane during division
+                    ctx.beginPath();
+                    for (let i = 0; i <= this.membranePoints; i++) {
+                        const angle = (i / this.membranePoints) * Math.PI * 2;
+                        const noise = this.softNoise(this.noiseOffsets[i % this.membranePoints] + time * 0.002) * 3;
+
+                        // Pinch effect toward center
+                        let pinchEffect = 1;
+                        const pinchAngle = Math.abs(Math.cos(angle));
+                        if (side === -1 && Math.cos(angle) > 0) {
+                            pinchEffect = 1 - pinch * 0.4 * pinchAngle;
+                        } else if (side === 1 && Math.cos(angle) < 0) {
+                            pinchEffect = 1 - pinch * 0.4 * pinchAngle;
+                        }
+
+                        const r = (daughterRadius + noise) * pinchEffect;
+                        const x = Math.cos(angle) * r;
+                        const y = Math.sin(angle) * r;
+
+                        if (i === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    ctx.closePath();
+
+                    // Cell body
+                    const bodyGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, daughterRadius);
+                    bodyGradient.addColorStop(0, this.hexToRgba(this.color, 0.4));
+                    bodyGradient.addColorStop(0.7, this.hexToRgba(this.color, 0.2));
+                    bodyGradient.addColorStop(1, this.hexToRgba(this.color, 0.1));
+                    ctx.fillStyle = bodyGradient;
+                    ctx.fill();
+
+                    // Membrane
+                    ctx.strokeStyle = this.color;
+                    ctx.lineWidth = 2;
+                    ctx.shadowColor = this.color;
+                    ctx.shadowBlur = 15;
+                    ctx.stroke();
+
+                    // Draw forming nuclei
+                    const nucleusRadius = daughterRadius * 0.25;
+                    const nucleusGlow = ctx.createRadialGradient(0, 0, 0, 0, 0, nucleusRadius);
+                    nucleusGlow.addColorStop(0, this.hexToRgba(this.color, 0.8));
+                    nucleusGlow.addColorStop(0.5, this.hexToRgba(this.color, 0.4));
+                    nucleusGlow.addColorStop(1, this.hexToRgba(this.color, 0.1));
+
+                    ctx.beginPath();
+                    ctx.arc(0, 0, nucleusRadius, 0, Math.PI * 2);
+                    ctx.fillStyle = nucleusGlow;
+                    ctx.fill();
+
+                    ctx.restore();
+                }
+
+                // Draw connecting bridge during early division
+                if (progress < 0.7) {
+                    ctx.beginPath();
+                    const bridgeWidth = this.radius * 0.4 * (1 - progress / 0.7);
+                    ctx.ellipse(0, 0, separation + this.radius * 0.3, bridgeWidth, 0, 0, Math.PI * 2);
+
+                    const bridgeGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.radius);
+                    bridgeGradient.addColorStop(0, this.hexToRgba(this.color, 0.3));
+                    bridgeGradient.addColorStop(1, this.hexToRgba(this.color, 0.05));
+                    ctx.fillStyle = bridgeGradient;
+                    ctx.fill();
+                }
+            }
+
+            drawNucleus(cellRadius) {
+                const nucleusRadius = this.nucleus.radius;
+                const wobbleX = Math.sin(this.phase * 0.7) * 2;
+                const wobbleY = Math.cos(this.phase * 0.9) * 2;
+
+                const nucleusGlow = ctx.createRadialGradient(
+                    wobbleX, wobbleY, 0,
+                    wobbleX, wobbleY, nucleusRadius
+                );
+                nucleusGlow.addColorStop(0, this.hexToRgba(this.color, 0.9));
+                nucleusGlow.addColorStop(0.4, this.hexToRgba(this.color, 0.5));
+                nucleusGlow.addColorStop(1, this.hexToRgba(this.color, 0.1));
+
+                ctx.beginPath();
+                ctx.arc(wobbleX, wobbleY, nucleusRadius, 0, Math.PI * 2);
+                ctx.fillStyle = nucleusGlow;
+                ctx.fill();
+
+                // Inner nuclear detail
+                ctx.beginPath();
+                ctx.arc(wobbleX - nucleusRadius * 0.2, wobbleY - nucleusRadius * 0.2, nucleusRadius * 0.3, 0, Math.PI * 2);
+                ctx.fillStyle = this.hexToRgba(this.color, 0.6);
+                ctx.fill();
+            }
+
+            drawOrganelles(cellRadius) {
+                this.organelles.forEach(o => {
+                    const wobble = Math.sin(o.phase) * 0.1;
+                    const dist = o.dist + wobble;
+                    const x = Math.cos(o.angle) * cellRadius * dist;
+                    const y = Math.sin(o.angle) * cellRadius * dist;
+
+                    ctx.beginPath();
+                    ctx.arc(x, y, o.size, 0, Math.PI * 2);
+                    ctx.fillStyle = this.hexToRgba(this.color, 0.4);
+                    ctx.fill();
+                });
+            }
+
+            softNoise(t) {
+                return Math.sin(t) * 0.5 + Math.sin(t * 2.3) * 0.3 + Math.sin(t * 4.1) * 0.2;
+            }
+
+            hexToRgba(hex, alpha) {
+                const r = parseInt(hex.slice(1, 3), 16);
+                const g = parseInt(hex.slice(3, 5), 16);
+                const b = parseInt(hex.slice(5, 7), 16);
+                return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+            }
+
+            containsPoint(px, py) {
+                const dx = px - this.x;
+                const dy = py - this.y;
+                return dx * dx + dy * dy < this.radius * this.radius;
+            }
+        }
+
+        // Initialize with a few cells
+        function init() {
+            cells.length = 0;
+            for (let i = 0; i < 5; i++) {
+                cells.push(new Cell(
+                    width * 0.2 + Math.random() * width * 0.6,
+                    height * 0.2 + Math.random() * height * 0.6
+                ));
+            }
+        }
+
+        // Click to divide
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            for (const cell of cells) {
+                if (cell.containsPoint(x, y) && !cell.dividing) {
+                    cell.startDivision();
+                    break;
+                }
+            }
+        });
+
+        // Animation loop
+        function animate(time) {
+            // Clear with fade effect for trails
+            ctx.fillStyle = 'rgba(10, 10, 15, 0.15)';
+            ctx.fillRect(0, 0, width, height);
+
+            // Update cells
+            cells.forEach(cell => cell.update(time));
+
+            // Cell-cell collisions
+            for (let i = 0; i < cells.length; i++) {
+                for (let j = i + 1; j < cells.length; j++) {
+                    cells[i].collideWith(cells[j]);
+                }
+            }
+
+            // Draw cells
+            cells.forEach(cell => cell.draw(time));
+
+            // Update count
+            countDisplay.textContent = cells.length;
+
+            requestAnimationFrame(animate);
+        }
+
+        init();
+        animate(0);
+    </script>
+</body>
+</html>

@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Rain - Cyberpunk Storm</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #0a0a0f;
+            font-family: 'Courier New', monospace;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        #info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: rgba(5, 217, 232, 0.6);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            pointer-events: none;
+            z-index: 100;
+            text-shadow: 0 0 10px rgba(5, 217, 232, 0.5);
+        }
+
+        .lightning-flash {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0);
+            pointer-events: none;
+            z-index: 50;
+            transition: background 0.05s;
+        }
+
+        .lightning-flash.active {
+            background: rgba(200, 220, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="rainCanvas"></canvas>
+    <div class="lightning-flash" id="lightningFlash"></div>
+    <div id="info">Move mouse to control wind</div>
+
+    <script>
+        const canvas = document.getElementById('rainCanvas');
+        const ctx = canvas.getContext('2d');
+        const lightningFlash = document.getElementById('lightningFlash');
+
+        let width, height;
+        let raindrops = [];
+        let splashes = [];
+        let puddles = [];
+        let wind = 0;
+        let targetWind = 0;
+        let mouseX = 0;
+        let lastTime = 0;
+
+        // Cyberpunk neon colors
+        const NEON_PINK = '#ff2a6d';
+        const NEON_CYAN = '#05d9e8';
+        const NEON_PURPLE = '#d300c5';
+        const NEON_YELLOW = '#ffe66d';
+
+        // Building silhouette data
+        let buildings = [];
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            generateBuildings();
+            generatePuddles();
+        }
+
+        function generateBuildings() {
+            buildings = [];
+            let x = 0;
+            const baseHeight = height * 0.3;
+
+            while (x < width + 200) {
+                const buildingWidth = 40 + Math.random() * 120;
+                const buildingHeight = baseHeight + Math.random() * (height * 0.4);
+                const hasAntenna = Math.random() > 0.7;
+                const hasNeonSign = Math.random() > 0.5;
+                const neonColor = Math.random() > 0.5 ? NEON_PINK : NEON_CYAN;
+
+                // Windows configuration
+                const windowRows = Math.floor((buildingHeight - 20) / 25);
+                const windowCols = Math.floor((buildingWidth - 20) / 20);
+                const windows = [];
+
+                for (let row = 0; row < windowRows; row++) {
+                    for (let col = 0; col < windowCols; col++) {
+                        if (Math.random() > 0.3) {
+                            windows.push({
+                                x: 10 + col * 20,
+                                y: 10 + row * 25,
+                                lit: Math.random() > 0.4,
+                                color: Math.random() > 0.7 ? neonColor : '#1a1a2e',
+                                flicker: Math.random() > 0.9
+                            });
+                        }
+                    }
+                }
+
+                buildings.push({
+                    x: x,
+                    width: buildingWidth,
+                    height: buildingHeight,
+                    hasAntenna,
+                    hasNeonSign,
+                    neonColor,
+                    windows,
+                    // Neon sign properties
+                    signY: height - buildingHeight + 30 + Math.random() * 50,
+                    signWidth: buildingWidth * 0.6,
+                    signFlicker: Math.random() > 0.8
+                });
+
+                x += buildingWidth + Math.random() * 30;
+            }
+        }
+
+        function generatePuddles() {
+            puddles = [];
+            const groundY = height - 20;
+
+            for (let i = 0; i < 15; i++) {
+                puddles.push({
+                    x: Math.random() * width,
+                    y: groundY + Math.random() * 15,
+                    width: 80 + Math.random() * 200,
+                    height: 5 + Math.random() * 10,
+                    ripples: []
+                });
+            }
+        }
+
+        class Raindrop {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.x = Math.random() * (width + 400) - 200;
+                this.y = Math.random() * -height;
+                this.z = 0.3 + Math.random() * 0.7; // Depth (affects size and speed)
+                this.length = 15 + this.z * 25;
+                this.speed = 12 + this.z * 18;
+                this.opacity = 0.3 + this.z * 0.5;
+
+                // Neon tint based on position
+                const tintChance = Math.random();
+                if (tintChance > 0.85) {
+                    this.color = NEON_PINK;
+                    this.glowing = true;
+                } else if (tintChance > 0.7) {
+                    this.color = NEON_CYAN;
+                    this.glowing = true;
+                } else {
+                    this.color = '#a0c4ff';
+                    this.glowing = false;
+                }
+            }
+
+            update(deltaTime) {
+                const windEffect = wind * (1 - this.z * 0.5);
+                this.x += windEffect * deltaTime * 0.06;
+                this.y += this.speed * deltaTime * 0.06;
+
+                // Check collision with buildings
+                for (const building of buildings) {
+                    const buildingTop = height - building.height;
+                    if (this.x >= building.x && this.x <= building.x + building.width) {
+                        if (this.y >= buildingTop) {
+                            this.createSplash(this.x, buildingTop);
+                            this.reset();
+                            return;
+                        }
+                    }
+                }
+
+                // Ground collision
+                if (this.y > height - 20) {
+                    this.createSplash(this.x, height - 20);
+                    this.addRippleToPuddle(this.x, this.y);
+                    this.reset();
+                }
+
+                // Off screen
+                if (this.x < -50 || this.x > width + 50) {
+                    this.reset();
+                }
+            }
+
+            createSplash(x, y) {
+                if (Math.random() > 0.7) {
+                    splashes.push(new Splash(x, y, this.color));
+                }
+            }
+
+            addRippleToPuddle(x, y) {
+                for (const puddle of puddles) {
+                    if (x >= puddle.x - puddle.width/2 && x <= puddle.x + puddle.width/2) {
+                        puddle.ripples.push({
+                            x: x,
+                            radius: 0,
+                            maxRadius: 15 + Math.random() * 20,
+                            opacity: 0.8
+                        });
+                        break;
+                    }
+                }
+            }
+
+            draw() {
+                const windAngle = Math.atan2(this.speed, wind) - Math.PI/2;
+                const endX = this.x + Math.cos(windAngle + Math.PI/2) * this.length;
+                const endY = this.y + Math.sin(windAngle + Math.PI/2) * this.length;
+
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(endX, endY);
+
+                if (this.glowing) {
+                    ctx.strokeStyle = this.color;
+                    ctx.lineWidth = this.z * 2;
+                    ctx.globalAlpha = this.opacity * 0.5;
+                    ctx.shadowColor = this.color;
+                    ctx.shadowBlur = 10;
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                }
+
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = this.z * 1.5;
+                ctx.globalAlpha = this.opacity;
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        class Splash {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.particles = [];
+
+                const particleCount = 3 + Math.floor(Math.random() * 5);
+                for (let i = 0; i < particleCount; i++) {
+                    const angle = -Math.PI/2 + (Math.random() - 0.5) * Math.PI * 0.8;
+                    const speed = 2 + Math.random() * 4;
+                    this.particles.push({
+                        x: 0,
+                        y: 0,
+                        vx: Math.cos(angle) * speed + wind * 0.02,
+                        vy: Math.sin(angle) * speed,
+                        life: 1,
+                        size: 1 + Math.random() * 2
+                    });
+                }
+            }
+
+            update(deltaTime) {
+                const dt = deltaTime * 0.06;
+                for (const p of this.particles) {
+                    p.x += p.vx * dt;
+                    p.y += p.vy * dt;
+                    p.vy += 0.3 * dt; // Gravity
+                    p.life -= 0.03 * dt;
+                }
+                this.particles = this.particles.filter(p => p.life > 0);
+            }
+
+            draw() {
+                for (const p of this.particles) {
+                    ctx.beginPath();
+                    ctx.arc(this.x + p.x, this.y + p.y, p.size, 0, Math.PI * 2);
+                    ctx.fillStyle = this.color;
+                    ctx.globalAlpha = p.life * 0.7;
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1;
+            }
+
+            isDead() {
+                return this.particles.length === 0;
+            }
+        }
+
+        function drawBuildings() {
+            const groundY = height - 20;
+
+            // Draw building silhouettes
+            for (const building of buildings) {
+                const buildingTop = height - building.height;
+
+                // Main building body
+                ctx.fillStyle = '#0a0a12';
+                ctx.fillRect(building.x, buildingTop, building.width, building.height);
+
+                // Building outline glow
+                ctx.strokeStyle = 'rgba(5, 217, 232, 0.1)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(building.x, buildingTop, building.width, building.height);
+
+                // Windows
+                for (const win of building.windows) {
+                    if (win.lit) {
+                        const flicker = win.flicker && Math.random() > 0.95;
+                        ctx.fillStyle = flicker ? '#0a0a12' : win.color;
+                        ctx.globalAlpha = flicker ? 0.3 : 0.7 + Math.random() * 0.3;
+                        ctx.fillRect(building.x + win.x, buildingTop + win.y, 12, 18);
+
+                        // Window glow
+                        if (win.color !== '#1a1a2e') {
+                            ctx.shadowColor = win.color;
+                            ctx.shadowBlur = 5;
+                            ctx.fillRect(building.x + win.x, buildingTop + win.y, 12, 18);
+                            ctx.shadowBlur = 0;
+                        }
+                        ctx.globalAlpha = 1;
+                    }
+                }
+
+                // Neon signs
+                if (building.hasNeonSign) {
+                    const signFlicker = building.signFlicker && Math.random() > 0.97;
+                    if (!signFlicker) {
+                        ctx.fillStyle = building.neonColor;
+                        ctx.shadowColor = building.neonColor;
+                        ctx.shadowBlur = 20;
+                        ctx.globalAlpha = 0.8;
+                        ctx.fillRect(
+                            building.x + (building.width - building.signWidth) / 2,
+                            building.signY,
+                            building.signWidth,
+                            8
+                        );
+                        ctx.shadowBlur = 0;
+                        ctx.globalAlpha = 1;
+                    }
+                }
+
+                // Antenna
+                if (building.hasAntenna) {
+                    ctx.strokeStyle = '#1a1a2e';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(building.x + building.width / 2, buildingTop);
+                    ctx.lineTo(building.x + building.width / 2, buildingTop - 30 - Math.random() * 20);
+                    ctx.stroke();
+
+                    // Blinking light
+                    if (Math.sin(Date.now() * 0.003) > 0) {
+                        ctx.fillStyle = '#ff0000';
+                        ctx.shadowColor = '#ff0000';
+                        ctx.shadowBlur = 10;
+                        ctx.beginPath();
+                        ctx.arc(building.x + building.width / 2, buildingTop - 30, 3, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.shadowBlur = 0;
+                    }
+                }
+            }
+
+            // Ground
+            const groundGradient = ctx.createLinearGradient(0, groundY - 5, 0, height);
+            groundGradient.addColorStop(0, '#0a0a12');
+            groundGradient.addColorStop(1, '#050508');
+            ctx.fillStyle = groundGradient;
+            ctx.fillRect(0, groundY, width, height - groundY);
+        }
+
+        function drawPuddles() {
+            for (const puddle of puddles) {
+                // Puddle base with reflection
+                const gradient = ctx.createRadialGradient(
+                    puddle.x, puddle.y,
+                    0,
+                    puddle.x, puddle.y,
+                    puddle.width / 2
+                );
+
+                // Neon reflections in puddles
+                const time = Date.now() * 0.001;
+                const pinkIntensity = 0.2 + Math.sin(time + puddle.x * 0.01) * 0.1;
+                const cyanIntensity = 0.2 + Math.cos(time + puddle.x * 0.01) * 0.1;
+
+                gradient.addColorStop(0, `rgba(255, 42, 109, ${pinkIntensity})`);
+                gradient.addColorStop(0.5, `rgba(5, 217, 232, ${cyanIntensity})`);
+                gradient.addColorStop(1, 'rgba(10, 10, 18, 0.3)');
+
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.ellipse(puddle.x, puddle.y, puddle.width / 2, puddle.height, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Ripples
+                for (let i = puddle.ripples.length - 1; i >= 0; i--) {
+                    const ripple = puddle.ripples[i];
+                    ripple.radius += 0.5;
+                    ripple.opacity -= 0.02;
+
+                    if (ripple.opacity <= 0 || ripple.radius >= ripple.maxRadius) {
+                        puddle.ripples.splice(i, 1);
+                        continue;
+                    }
+
+                    ctx.strokeStyle = `rgba(5, 217, 232, ${ripple.opacity})`;
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.ellipse(ripple.x, puddle.y, ripple.radius, ripple.radius * 0.3, 0, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        function drawAtmosphere() {
+            // Fog/mist layer
+            const fogGradient = ctx.createLinearGradient(0, height * 0.5, 0, height);
+            fogGradient.addColorStop(0, 'rgba(10, 10, 20, 0)');
+            fogGradient.addColorStop(0.7, 'rgba(20, 20, 40, 0.2)');
+            fogGradient.addColorStop(1, 'rgba(30, 30, 50, 0.4)');
+            ctx.fillStyle = fogGradient;
+            ctx.fillRect(0, 0, width, height);
+
+            // Neon glow in sky
+            const skyGlow = ctx.createRadialGradient(
+                width * 0.3, height * 0.2, 0,
+                width * 0.3, height * 0.2, height * 0.5
+            );
+            skyGlow.addColorStop(0, 'rgba(255, 42, 109, 0.05)');
+            skyGlow.addColorStop(1, 'rgba(255, 42, 109, 0)');
+            ctx.fillStyle = skyGlow;
+            ctx.fillRect(0, 0, width, height);
+
+            const skyGlow2 = ctx.createRadialGradient(
+                width * 0.7, height * 0.15, 0,
+                width * 0.7, height * 0.15, height * 0.4
+            );
+            skyGlow2.addColorStop(0, 'rgba(5, 217, 232, 0.05)');
+            skyGlow2.addColorStop(1, 'rgba(5, 217, 232, 0)');
+            ctx.fillStyle = skyGlow2;
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        function triggerLightning() {
+            lightningFlash.classList.add('active');
+
+            // Draw lightning bolt
+            drawLightningBolt();
+
+            setTimeout(() => {
+                lightningFlash.classList.remove('active');
+            }, 50);
+
+            // Double flash
+            if (Math.random() > 0.5) {
+                setTimeout(() => {
+                    lightningFlash.classList.add('active');
+                    drawLightningBolt();
+                    setTimeout(() => {
+                        lightningFlash.classList.remove('active');
+                    }, 30);
+                }, 100);
+            }
+
+            // Thunder sound simulation (screen shake)
+            setTimeout(() => {
+                document.body.style.transform = 'translate(2px, 1px)';
+                setTimeout(() => {
+                    document.body.style.transform = 'translate(-1px, 2px)';
+                    setTimeout(() => {
+                        document.body.style.transform = '';
+                    }, 50);
+                }, 50);
+            }, 300 + Math.random() * 1000);
+        }
+
+        function drawLightningBolt() {
+            const startX = width * 0.2 + Math.random() * width * 0.6;
+            const startY = 0;
+            let x = startX;
+            let y = startY;
+            const endY = height * 0.4 + Math.random() * height * 0.3;
+
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+
+            while (y < endY) {
+                x += (Math.random() - 0.5) * 100;
+                y += 20 + Math.random() * 40;
+                ctx.lineTo(x, y);
+
+                // Branches
+                if (Math.random() > 0.7) {
+                    const branchX = x + (Math.random() - 0.5) * 150;
+                    const branchY = y + 30 + Math.random() * 50;
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(branchX, branchY);
+                    ctx.moveTo(x, y);
+                }
+            }
+
+            ctx.strokeStyle = 'rgba(200, 220, 255, 0.9)';
+            ctx.lineWidth = 3;
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 20;
+            ctx.stroke();
+
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            ctx.shadowBlur = 0;
+        }
+
+        function init() {
+            resize();
+
+            // Create raindrops
+            const dropCount = Math.min(3000, Math.floor((width * height) / 500));
+            for (let i = 0; i < dropCount; i++) {
+                raindrops.push(new Raindrop());
+            }
+
+            // Schedule lightning
+            function scheduleLightning() {
+                const delay = 5000 + Math.random() * 15000;
+                setTimeout(() => {
+                    triggerLightning();
+                    scheduleLightning();
+                }, delay);
+            }
+            scheduleLightning();
+
+            // Initial lightning after 2 seconds
+            setTimeout(triggerLightning, 2000);
+        }
+
+        function update(deltaTime) {
+            // Smooth wind transition
+            wind += (targetWind - wind) * 0.02;
+
+            // Update raindrops
+            for (const drop of raindrops) {
+                drop.update(deltaTime);
+            }
+
+            // Update splashes
+            for (const splash of splashes) {
+                splash.update(deltaTime);
+            }
+            splashes = splashes.filter(s => !s.isDead());
+        }
+
+        function draw() {
+            // Clear with dark background
+            ctx.fillStyle = '#0a0a0f';
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw scene layers
+            drawAtmosphere();
+            drawBuildings();
+            drawPuddles();
+
+            // Draw raindrops
+            for (const drop of raindrops) {
+                drop.draw();
+            }
+
+            // Draw splashes
+            for (const splash of splashes) {
+                splash.draw();
+            }
+        }
+
+        function animate(currentTime) {
+            const deltaTime = Math.min(currentTime - lastTime, 50);
+            lastTime = currentTime;
+
+            update(deltaTime);
+            draw();
+
+            requestAnimationFrame(animate);
+        }
+
+        // Event listeners
+        window.addEventListener('resize', resize);
+
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            // Wind based on mouse position (-15 to 15)
+            targetWind = ((mouseX / width) - 0.5) * 30;
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            targetWind = ((mouseX / width) - 0.5) * 30;
+        }, { passive: false });
+
+        // Click for manual lightning
+        window.addEventListener('click', triggerLightning);
+
+        // Start
+        init();
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>

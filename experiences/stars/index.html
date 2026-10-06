@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hyperspace Starfield</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            cursor: crosshair;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        #nebula-canvas {
+            z-index: 1;
+            opacity: 0.4;
+        }
+
+        #star-canvas {
+            z-index: 2;
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.6);
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            z-index: 10;
+            text-align: center;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(5, 217, 232, 0.5);
+            transition: opacity 0.5s;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="nebula-canvas"></canvas>
+    <canvas id="star-canvas"></canvas>
+    <div class="instructions">Move mouse to steer through hyperspace</div>
+
+    <script>
+        // Configuration
+        const CONFIG = {
+            starCount: 1500,
+            baseSpeed: 15,
+            maxSpeed: 50,
+            starColors: ['#ff2a6d', '#05d9e8', '#ffffff', '#ffff00', '#ff6b35', '#00ff88'],
+            nebulaColors: ['#ff2a6d', '#05d9e8', '#9d4edd', '#00ff88', '#ff6b35'],
+            fov: 300,
+            minStarSize: 0.5,
+            maxStarSize: 3,
+            twinkleSpeed: 0.05
+        };
+
+        // Canvas setup
+        const starCanvas = document.getElementById('star-canvas');
+        const starCtx = starCanvas.getContext('2d');
+        const nebulaCanvas = document.getElementById('nebula-canvas');
+        const nebulaCtx = nebulaCanvas.getContext('2d');
+
+        let width, height, centerX, centerY;
+
+        // Mouse tracking
+        let mouseX = 0.5;
+        let mouseY = 0.5;
+        let targetOffsetX = 0;
+        let targetOffsetY = 0;
+        let currentOffsetX = 0;
+        let currentOffsetY = 0;
+
+        // Star class
+        class Star {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.x = (Math.random() - 0.5) * width * 3;
+                this.y = (Math.random() - 0.5) * height * 3;
+                this.z = Math.random() * 2000 + 100;
+                this.color = CONFIG.starColors[Math.floor(Math.random() * CONFIG.starColors.length)];
+                this.baseSize = CONFIG.minStarSize + Math.random() * (CONFIG.maxStarSize - CONFIG.minStarSize);
+                this.twinkleOffset = Math.random() * Math.PI * 2;
+                this.twinkleSpeed = CONFIG.twinkleSpeed + Math.random() * 0.03;
+            }
+
+            update(speed, offsetX, offsetY) {
+                // Move star towards camera
+                this.z -= speed;
+
+                // Apply mouse steering
+                this.x += offsetX * (speed / 10);
+                this.y += offsetY * (speed / 10);
+
+                // Reset if star passes camera or goes off screen
+                if (this.z < 1) {
+                    this.reset();
+                    this.z = 2000;
+                }
+
+                // Projected position
+                const scale = CONFIG.fov / this.z;
+                const projX = this.x * scale + centerX;
+                const projY = this.y * scale + centerY;
+
+                // Reset if off screen
+                if (projX < -100 || projX > width + 100 || projY < -100 || projY > height + 100) {
+                    this.reset();
+                    this.z = 2000;
+                }
+            }
+
+            draw(ctx, time) {
+                const scale = CONFIG.fov / this.z;
+                const projX = this.x * scale + centerX;
+                const projY = this.y * scale + centerY;
+
+                // Twinkle effect
+                const twinkle = 0.5 + 0.5 * Math.sin(time * this.twinkleSpeed + this.twinkleOffset);
+
+                // Size based on distance and twinkle
+                const size = this.baseSize * scale * 50 * (0.7 + 0.3 * twinkle);
+
+                // Brightness based on distance
+                const brightness = Math.min(1, (2000 - this.z) / 1500);
+
+                // Draw star glow
+                const gradient = ctx.createRadialGradient(projX, projY, 0, projX, projY, size * 2);
+                gradient.addColorStop(0, this.color);
+                gradient.addColorStop(0.3, this.color + 'aa');
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.globalAlpha = brightness * twinkle;
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(projX, projY, size * 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Draw star core
+                ctx.globalAlpha = brightness;
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(projX, projY, size * 0.5, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Draw motion trail
+                if (this.z < 1500) {
+                    const trailLength = Math.min(50, (1500 - this.z) / 30 * (speed / CONFIG.baseSpeed));
+                    const prevScale = CONFIG.fov / (this.z + trailLength);
+                    const prevX = this.x * prevScale + centerX;
+                    const prevY = this.y * prevScale + centerY;
+
+                    const trailGradient = ctx.createLinearGradient(prevX, prevY, projX, projY);
+                    trailGradient.addColorStop(0, 'transparent');
+                    trailGradient.addColorStop(1, this.color);
+
+                    ctx.globalAlpha = brightness * 0.6;
+                    ctx.strokeStyle = trailGradient;
+                    ctx.lineWidth = size * 0.8;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(prevX, prevY);
+                    ctx.lineTo(projX, projY);
+                    ctx.stroke();
+                }
+
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        // Nebula class
+        class Nebula {
+            constructor() {
+                this.reset();
+            }
+
+            reset() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+                this.radius = 100 + Math.random() * 300;
+                this.color = CONFIG.nebulaColors[Math.floor(Math.random() * CONFIG.nebulaColors.length)];
+                this.alpha = 0.02 + Math.random() * 0.05;
+                this.drift = {
+                    x: (Math.random() - 0.5) * 0.5,
+                    y: (Math.random() - 0.5) * 0.5
+                };
+                this.pulseOffset = Math.random() * Math.PI * 2;
+                this.pulseSpeed = 0.001 + Math.random() * 0.002;
+            }
+
+            update() {
+                this.x += this.drift.x;
+                this.y += this.drift.y;
+
+                if (this.x < -this.radius) this.x = width + this.radius;
+                if (this.x > width + this.radius) this.x = -this.radius;
+                if (this.y < -this.radius) this.y = height + this.radius;
+                if (this.y > height + this.radius) this.y = -this.radius;
+            }
+
+            draw(ctx, time) {
+                const pulse = 0.8 + 0.2 * Math.sin(time * this.pulseSpeed + this.pulseOffset);
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.radius * pulse
+                );
+                gradient.addColorStop(0, this.color + '40');
+                gradient.addColorStop(0.5, this.color + '20');
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.globalAlpha = this.alpha * pulse;
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius * pulse, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        // Initialize
+        let stars = [];
+        let nebulae = [];
+        let speed = CONFIG.baseSpeed;
+        let time = 0;
+        let lastTime = 0;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            centerX = width / 2;
+            centerY = height / 2;
+
+            starCanvas.width = width;
+            starCanvas.height = height;
+            nebulaCanvas.width = width;
+            nebulaCanvas.height = height;
+
+            // Reinitialize stars if needed
+            if (stars.length === 0) {
+                for (let i = 0; i < CONFIG.starCount; i++) {
+                    stars.push(new Star());
+                }
+                for (let i = 0; i < 8; i++) {
+                    nebulae.push(new Nebula());
+                }
+            }
+        }
+
+        function handleMouseMove(e) {
+            mouseX = e.clientX / width;
+            mouseY = e.clientY / height;
+            targetOffsetX = (mouseX - 0.5) * 30;
+            targetOffsetY = (mouseY - 0.5) * 30;
+        }
+
+        function handleTouch(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            mouseX = touch.clientX / width;
+            mouseY = touch.clientY / height;
+            targetOffsetX = (mouseX - 0.5) * 30;
+            targetOffsetY = (mouseY - 0.5) * 30;
+        }
+
+        function animate(currentTime) {
+            requestAnimationFrame(animate);
+
+            // Calculate delta time for consistent speed
+            const deltaTime = Math.min((currentTime - lastTime) / 16.67, 2);
+            lastTime = currentTime;
+            time = currentTime;
+
+            // Smooth mouse steering
+            currentOffsetX += (targetOffsetX - currentOffsetX) * 0.05;
+            currentOffsetY += (targetOffsetY - currentOffsetY) * 0.05;
+
+            // Dynamic speed based on mouse position
+            const distFromCenter = Math.sqrt(
+                Math.pow(mouseX - 0.5, 2) + Math.pow(mouseY - 0.5, 2)
+            );
+            const targetSpeed = CONFIG.baseSpeed + distFromCenter * (CONFIG.maxSpeed - CONFIG.baseSpeed);
+            speed += (targetSpeed - speed) * 0.02;
+
+            // Clear canvases
+            starCtx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+            starCtx.fillRect(0, 0, width, height);
+
+            nebulaCtx.fillStyle = 'rgba(0, 0, 0, 0.02)';
+            nebulaCtx.fillRect(0, 0, width, height);
+
+            // Update and draw nebulae
+            nebulae.forEach(nebula => {
+                nebula.update();
+                nebula.draw(nebulaCtx, time);
+            });
+
+            // Update and draw stars (back to front for proper layering)
+            stars.sort((a, b) => b.z - a.z);
+            stars.forEach(star => {
+                star.update(speed * deltaTime, currentOffsetX * deltaTime, currentOffsetY * deltaTime);
+                star.draw(starCtx, time);
+            });
+
+            // Occasional flash effect at high speed
+            if (speed > 40 && Math.random() < 0.01) {
+                starCtx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.05})`;
+                starCtx.fillRect(0, 0, width, height);
+            }
+        }
+
+        // Hide instructions after a delay
+        setTimeout(() => {
+            document.querySelector('.instructions').style.opacity = '0';
+        }, 4000);
+
+        // Event listeners
+        window.addEventListener('resize', resize);
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('touchmove', handleTouch, { passive: false });
+        document.addEventListener('touchstart', handleTouch, { passive: false });
+
+        // Start
+        resize();
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>

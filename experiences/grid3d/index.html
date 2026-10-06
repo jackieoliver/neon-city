@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SYNTHWAVE HORIZON</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #0d0221;
+            font-family: 'Courier New', monospace;
+        }
+
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .scanlines {
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 0, 0, 0.15) 2px,
+                rgba(0, 0, 0, 0.15) 4px
+            );
+        }
+
+        .vignette {
+            background: radial-gradient(
+                ellipse at center,
+                transparent 0%,
+                transparent 40%,
+                rgba(13, 2, 33, 0.8) 100%
+            );
+        }
+
+        .title {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 20;
+            text-align: center;
+        }
+
+        .title h1 {
+            font-size: clamp(24px, 5vw, 48px);
+            font-weight: bold;
+            letter-spacing: 0.3em;
+            background: linear-gradient(180deg, #ff2a6d 0%, #05d9e8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 0 30px rgba(255, 42, 109, 0.5);
+            animation: titleGlow 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes titleGlow {
+            from {
+                filter: drop-shadow(0 0 20px rgba(255, 42, 109, 0.8));
+            }
+            to {
+                filter: drop-shadow(0 0 40px rgba(5, 217, 232, 0.8));
+            }
+        }
+
+        .subtitle {
+            font-size: clamp(10px, 2vw, 14px);
+            color: #05d9e8;
+            letter-spacing: 0.5em;
+            margin-top: 10px;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="grid"></canvas>
+    <div class="overlay scanlines"></div>
+    <div class="overlay vignette"></div>
+    <div class="title">
+        <h1>SYNTHWAVE HORIZON</h1>
+        <div class="subtitle">STRETCHING TO INFINITY</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('grid');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+        let time = 0;
+        let sunPhase = 0;
+
+        // Colors
+        const NEON_PINK = '#ff2a6d';
+        const NEON_CYAN = '#05d9e8';
+        const DARK_PURPLE = '#0d0221';
+        const HORIZON_PURPLE = '#1a0533';
+
+        // Grid settings
+        const GRID_LINES = 40;
+        const GRID_SPEED = 0.015;
+        let gridOffset = 0;
+
+        // Mountain settings
+        const mountains = [];
+        const MOUNTAIN_LAYERS = 3;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            generateMountains();
+        }
+
+        function generateMountains() {
+            mountains.length = 0;
+            for (let layer = 0; layer < MOUNTAIN_LAYERS; layer++) {
+                const points = [];
+                const segments = 60;
+                const layerHeight = 0.15 + layer * 0.08;
+                const roughness = 0.03 - layer * 0.008;
+
+                for (let i = 0; i <= segments; i++) {
+                    const x = (i / segments) * width;
+                    let y = height * 0.5;
+
+                    // Procedural mountain generation
+                    const freq1 = Math.sin(i * 0.15 + layer * 2) * height * roughness * 2;
+                    const freq2 = Math.sin(i * 0.3 + layer * 1.5) * height * roughness;
+                    const freq3 = Math.sin(i * 0.5 + layer) * height * roughness * 0.5;
+
+                    y -= (freq1 + freq2 + freq3) + height * layerHeight;
+
+                    // Add peaks
+                    if (i % 10 === 5) {
+                        y -= Math.random() * height * 0.05;
+                    }
+
+                    points.push({ x, y });
+                }
+
+                mountains.push({
+                    points,
+                    layer,
+                    color: layer === 0 ? '#2a0845' : layer === 1 ? '#1a0533' : '#0d0221'
+                });
+            }
+        }
+
+        function drawSky() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, height * 0.55);
+            gradient.addColorStop(0, '#0d0221');
+            gradient.addColorStop(0.3, '#1a0533');
+            gradient.addColorStop(0.6, '#2a0845');
+            gradient.addColorStop(0.8, '#3d1155');
+            gradient.addColorStop(1, '#541469');
+
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height * 0.55);
+        }
+
+        function drawSun() {
+            const horizonY = height * 0.5;
+            const sunRadius = Math.min(width, height) * 0.15;
+
+            // Sun rises and sets
+            sunPhase += 0.001;
+            const sunCycle = Math.sin(sunPhase);
+            const sunY = horizonY - sunRadius * 0.3 + sunCycle * sunRadius * 0.5;
+            const sunX = width / 2;
+
+            // Sun glow
+            const glowGradient = ctx.createRadialGradient(
+                sunX, sunY, 0,
+                sunX, sunY, sunRadius * 3
+            );
+            glowGradient.addColorStop(0, 'rgba(255, 42, 109, 0.4)');
+            glowGradient.addColorStop(0.3, 'rgba(255, 100, 50, 0.2)');
+            glowGradient.addColorStop(1, 'transparent');
+
+            ctx.fillStyle = glowGradient;
+            ctx.fillRect(0, 0, width, height * 0.6);
+
+            // Sun body with gradient
+            const sunGradient = ctx.createLinearGradient(
+                sunX, sunY - sunRadius,
+                sunX, sunY + sunRadius
+            );
+            sunGradient.addColorStop(0, '#ff6b35');
+            sunGradient.addColorStop(0.3, '#ff2a6d');
+            sunGradient.addColorStop(0.6, '#d41872');
+            sunGradient.addColorStop(1, '#541469');
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(sunX, sunY, sunRadius, 0, Math.PI * 2);
+            ctx.fillStyle = sunGradient;
+            ctx.fill();
+
+            // Horizontal lines through sun (retro effect)
+            ctx.globalCompositeOperation = 'destination-out';
+            const lineCount = 8;
+            const lineSpacing = sunRadius * 2 / (lineCount + 1);
+
+            for (let i = 1; i <= lineCount; i++) {
+                const lineY = sunY - sunRadius + i * lineSpacing;
+                const lineHeight = 2 + i * 0.5;
+
+                // Only draw lines in the bottom half
+                if (lineY > sunY) {
+                    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+                    ctx.fillRect(sunX - sunRadius, lineY, sunRadius * 2, lineHeight);
+                }
+            }
+
+            ctx.restore();
+
+            // Clip sun to horizon
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(0, horizonY, width, height);
+            ctx.clip();
+            ctx.fillStyle = DARK_PURPLE;
+            ctx.beginPath();
+            ctx.arc(sunX, sunY, sunRadius + 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function drawMountains() {
+            mountains.forEach((mountain, idx) => {
+                ctx.beginPath();
+                ctx.moveTo(0, height * 0.55);
+
+                mountain.points.forEach((point, i) => {
+                    if (i === 0) {
+                        ctx.moveTo(point.x, point.y);
+                    } else {
+                        ctx.lineTo(point.x, point.y);
+                    }
+                });
+
+                ctx.lineTo(width, height * 0.55);
+                ctx.lineTo(0, height * 0.55);
+                ctx.closePath();
+
+                // Gradient fill for mountains
+                const gradient = ctx.createLinearGradient(0, height * 0.3, 0, height * 0.55);
+                gradient.addColorStop(0, mountain.color);
+                gradient.addColorStop(1, '#0d0221');
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // Neon outline for closest mountain
+                if (idx === 0) {
+                    ctx.strokeStyle = NEON_PINK;
+                    ctx.lineWidth = 1;
+                    ctx.shadowColor = NEON_PINK;
+                    ctx.shadowBlur = 10;
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                }
+            });
+        }
+
+        function drawGrid() {
+            const horizonY = height * 0.5;
+            const vanishX = width / 2;
+
+            // Ground gradient
+            const groundGradient = ctx.createLinearGradient(0, horizonY, 0, height);
+            groundGradient.addColorStop(0, '#1a0533');
+            groundGradient.addColorStop(0.5, '#0d0221');
+            groundGradient.addColorStop(1, '#050010');
+
+            ctx.fillStyle = groundGradient;
+            ctx.fillRect(0, horizonY, width, height - horizonY);
+
+            // Update grid offset for scrolling
+            gridOffset += GRID_SPEED;
+            if (gridOffset >= 1) gridOffset -= 1;
+
+            ctx.save();
+
+            // Horizontal lines (perspective)
+            ctx.strokeStyle = NEON_CYAN;
+            ctx.lineWidth = 1;
+
+            for (let i = 0; i < GRID_LINES; i++) {
+                const t = (i + gridOffset) / GRID_LINES;
+                const perspective = Math.pow(t, 2.5);
+                const y = horizonY + perspective * (height - horizonY);
+
+                // Line fades near horizon
+                const alpha = Math.min(1, perspective * 3);
+                const glow = Math.max(0, 1 - perspective) * 15;
+
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+
+                ctx.strokeStyle = `rgba(5, 217, 232, ${alpha * 0.8})`;
+                ctx.shadowColor = NEON_CYAN;
+                ctx.shadowBlur = glow;
+                ctx.stroke();
+            }
+
+            // Vertical lines (converging to vanishing point)
+            const verticalLines = 30;
+
+            for (let i = -verticalLines; i <= verticalLines; i++) {
+                const spread = (i / verticalLines) * width * 1.5;
+
+                ctx.beginPath();
+                ctx.moveTo(vanishX, horizonY);
+                ctx.lineTo(vanishX + spread, height);
+
+                const distFromCenter = Math.abs(i) / verticalLines;
+                const alpha = 1 - distFromCenter * 0.5;
+
+                ctx.strokeStyle = `rgba(255, 42, 109, ${alpha * 0.6})`;
+                ctx.shadowColor = NEON_PINK;
+                ctx.shadowBlur = 8;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+
+            ctx.restore();
+        }
+
+        function drawStars() {
+            const starCount = 150;
+
+            for (let i = 0; i < starCount; i++) {
+                // Use deterministic positioning based on index
+                const seed = i * 9301 + 49297;
+                const x = (seed % width);
+                const y = ((seed * 233) % (height * 0.45));
+                const size = ((seed * 17) % 3) + 0.5;
+
+                // Twinkle effect
+                const twinkle = Math.sin(time * 0.003 + i) * 0.5 + 0.5;
+
+                ctx.beginPath();
+                ctx.arc(x, y, size * twinkle, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${0.3 + twinkle * 0.7})`;
+                ctx.fill();
+
+                // Occasional bright star
+                if (i % 20 === 0) {
+                    ctx.shadowColor = '#ffffff';
+                    ctx.shadowBlur = 10;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                }
+            }
+        }
+
+        function drawTerrainOnGrid() {
+            const horizonY = height * 0.5;
+            const vanishX = width / 2;
+
+            // Draw small terrain features on the grid
+            const terrainCount = 20;
+
+            ctx.save();
+
+            for (let i = 0; i < terrainCount; i++) {
+                const seed = i * 7919;
+                const gridX = ((seed % 100) - 50) / 50;
+                const gridZ = (seed * 13 % 100) / 100;
+
+                // Animate terrain moving toward viewer
+                let z = (gridZ + gridOffset * 0.5) % 1;
+                const perspective = Math.pow(z, 2);
+
+                const screenY = horizonY + perspective * (height - horizonY);
+                const spread = gridX * width * perspective;
+                const screenX = vanishX + spread;
+
+                // Size based on distance
+                const size = perspective * 30 + 2;
+
+                // Skip if too close to horizon
+                if (perspective < 0.1) continue;
+
+                // Draw pyramid/terrain feature
+                ctx.beginPath();
+                ctx.moveTo(screenX, screenY);
+                ctx.lineTo(screenX - size, screenY + size * 0.5);
+                ctx.lineTo(screenX + size, screenY + size * 0.5);
+                ctx.closePath();
+
+                const alpha = Math.min(1, perspective * 2);
+                ctx.fillStyle = `rgba(26, 5, 51, ${alpha})`;
+                ctx.fill();
+
+                ctx.strokeStyle = `rgba(255, 42, 109, ${alpha * 0.5})`;
+                ctx.lineWidth = 1;
+                ctx.shadowColor = NEON_PINK;
+                ctx.shadowBlur = 5;
+                ctx.stroke();
+            }
+
+            ctx.restore();
+        }
+
+        function addChromaticAberration() {
+            // Subtle chromatic aberration effect on edges
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.globalAlpha = 0.03;
+
+            // Red channel shift
+            ctx.drawImage(canvas, -2, 0);
+
+            // Blue channel shift
+            ctx.drawImage(canvas, 2, 0);
+
+            ctx.restore();
+        }
+
+        function animate() {
+            time++;
+
+            // Clear
+            ctx.fillStyle = DARK_PURPLE;
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw layers back to front
+            drawSky();
+            drawStars();
+            drawSun();
+            drawMountains();
+            drawGrid();
+            drawTerrainOnGrid();
+
+            // Post-processing
+            addChromaticAberration();
+
+            requestAnimationFrame(animate);
+        }
+
+        // Initialize
+        window.addEventListener('resize', resize);
+        resize();
+        animate();
+
+        // Add some interactivity - grid speed changes with mouse
+        document.addEventListener('mousemove', (e) => {
+            const speedMod = (e.clientY / height) * 0.02 + 0.005;
+            // Subtle speed variation based on mouse position
+        });
+    </script>
+</body>
+</html>

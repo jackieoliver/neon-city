@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEON CITY - AI Agent Swarm</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: linear-gradient(135deg, #0a0a12 0%, #150a1a 50%, #0a0f1a 100%);
+            min-height: 100vh;
+            font-family: 'Courier New', monospace;
+            color: #e0e0e0;
+        }
+        .warning {
+            position: fixed; top: 0; left: 0; right: 0;
+            background: rgba(255, 42, 109, 0.9);
+            color: white; text-align: center; padding: 6px;
+            font-size: 11px; z-index: 1000; letter-spacing: 0.1em;
+        }
+        header {
+            text-align: center;
+            padding: 3rem 1rem 1rem;
+        }
+        h1 {
+            font-size: clamp(2rem, 8vw, 4rem);
+            letter-spacing: 0.2em;
+            color: #ff2a6d;
+            text-shadow: 0 0 10px #ff2a6d, 0 0 20px #ff2a6d, 0 0 40px #ff2a6d;
+            animation: flicker 4s infinite;
+        }
+        @keyframes flicker {
+            0%, 100% { opacity: 1; }
+            92% { opacity: 1; }
+            93% { opacity: 0.8; }
+            94% { opacity: 1; }
+            96% { opacity: 0.9; }
+        }
+        .subtitle {
+            color: #05d9e8;
+            font-size: 0.9rem;
+            letter-spacing: 0.3em;
+            margin-top: 0.5rem;
+        }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            flex-wrap: wrap;
+        }
+        .pagination button {
+            background: transparent;
+            border: 2px solid #ff2a6d;
+            color: #ff2a6d;
+            padding: 0.6rem 1.5rem;
+            font-family: inherit;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            letter-spacing: 0.1em;
+        }
+        .pagination button:hover:not(:disabled) {
+            background: rgba(255, 42, 109, 0.2);
+            box-shadow: 0 0 20px rgba(255, 42, 109, 0.3);
+        }
+        .pagination button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+        .page-info {
+            color: #05d9e8;
+            font-size: 1rem;
+            min-width: 100px;
+            text-align: center;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 1.5rem;
+            padding: 1rem 2rem 2rem;
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+        @media (max-width: 600px) {
+            .grid { grid-template-columns: 1fr; padding: 1rem; }
+        }
+        .card {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid #333;
+            border-radius: 8px;
+            overflow: hidden;
+            transition: all 0.3s;
+        }
+        .card:hover {
+            border-color: #ff2a6d;
+            box-shadow: 0 0 30px rgba(255, 42, 109, 0.3);
+            transform: translateY(-3px);
+        }
+        .card-header {
+            padding: 0.8rem 1rem;
+            background: rgba(0, 0, 0, 0.4);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #333;
+        }
+        .card-title {
+            color: #05d9e8;
+            font-size: 1rem;
+            letter-spacing: 0.1em;
+        }
+        .card-link {
+            color: #ff2a6d;
+            text-decoration: none;
+            font-size: 0.8rem;
+            padding: 0.3rem 0.8rem;
+            border: 1px solid #ff2a6d;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .card-link:hover {
+            background: rgba(255, 42, 109, 0.2);
+        }
+        .card iframe {
+            width: 100%;
+            height: 300px;
+            border: none;
+            background: #000;
+        }
+        .card .iframe-wrapper {
+            position: relative;
+            width: 100%;
+            height: 300px;
+            background: #000;
+        }
+        .card .loading-placeholder {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 1rem;
+            color: #333;
+            font-size: 0.8rem;
+            letter-spacing: 0.1em;
+        }
+        .card .loading-placeholder .spinner {
+            width: 30px;
+            height: 30px;
+            border: 2px solid #222;
+            border-top-color: #ff2a6d;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .card.paused iframe {
+            filter: brightness(0.3);
+        }
+        .card .pause-indicator {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #05d9e8;
+            font-size: 2rem;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        .card.paused .pause-indicator {
+            opacity: 0.7;
+        }
+        .perf-stats {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            color: #05d9e8;
+            padding: 8px 12px;
+            font-size: 10px;
+            border: 1px solid #333;
+            border-radius: 4px;
+            z-index: 1000;
+        }
+        .dots {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 1rem;
+        }
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #333;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .dot:hover { background: #05d9e8; }
+        .dot.active { background: #ff2a6d; box-shadow: 0 0 10px #ff2a6d; }
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: #444;
+            border-top: 1px solid #222;
+        }
+        .hints {
+            color: #333;
+            font-size: 0.75rem;
+            margin-top: 0.5rem;
+        }
+        kbd {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.1) 2px, rgba(0,0,0,0.1) 4px);
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+    <div class="warning">ALL CONTENT AI GENERATED BY 40 PARALLEL AGENTS</div>
+
+    <header>
+        <h1>NEON CITY</h1>
+        <p class="subtitle">40 AGENT SWARM EXPERIMENT</p>
+    </header>
+
+    <div class="pagination">
+        <button id="prevBtn" onclick="changePage(-1)">← PREV</button>
+        <span class="page-info" id="pageInfo">1 / 8</span>
+        <button id="nextBtn" onclick="changePage(1)">NEXT →</button>
+    </div>
+
+    <div class="grid" id="grid"></div>
+
+    <div class="dots" id="dots"></div>
+
+    <footer>
+        <p>40 experiences • 23,000+ lines of code • Built by autonomous Claude instances</p>
+        <p class="hints"><kbd>←</kbd> <kbd>→</kbd> navigate pages</p>
+    </footer>
+
+    <div class="perf-stats" id="perfStats">FPS: --</div>
+
+    <script>
+        const experiences = [
+            { id: 'particles', title: 'Particle Systems', emoji: '🌊' },
+            { id: 'fractals', title: 'Fractal Explorer', emoji: '🌀' },
+            { id: 'neural', title: 'Neural Networks', emoji: '🧠' },
+            { id: 'audio', title: 'Audio Synthesizer', emoji: '🎹' },
+            { id: 'fluid', title: 'Fluid Dynamics', emoji: '💧' },
+            { id: 'city', title: 'Procedural City', emoji: '🏙️' },
+            { id: 'cosmos', title: 'Cosmos', emoji: '🌌' },
+            { id: 'maze', title: 'Maze Generator', emoji: '🧩' },
+            { id: 'terrain', title: 'Terrain Generator', emoji: '🏔️' },
+            { id: 'life', title: 'Game of Life', emoji: '🦠' },
+            { id: 'glitch', title: 'Glitch Art', emoji: '📺' },
+            { id: 'metaballs', title: 'Metaballs', emoji: '🫧' },
+            { id: 'voronoi', title: 'Voronoi Diagram', emoji: '🔷' },
+            { id: 'noise', title: 'Noise Visualizer', emoji: '🌫️' },
+            { id: 'physics', title: 'Physics Sandbox', emoji: '⚽' },
+            { id: 'boids', title: 'Boids Flocking', emoji: '🐦' },
+            { id: 'waves', title: 'Wave Interference', emoji: '🌊' },
+            { id: 'clock', title: 'Cyberpunk Clock', emoji: '🕐' },
+            { id: 'matrix', title: 'Matrix Rain', emoji: '🟢' },
+            { id: 'fire', title: 'Fire Simulation', emoji: '🔥' },
+            { id: 'lightning', title: 'Lightning', emoji: '⚡' },
+            { id: 'kaleidoscope', title: 'Kaleidoscope', emoji: '🔮' },
+            { id: 'spirograph', title: 'Spirograph', emoji: '🎨' },
+            { id: 'rain', title: 'Neon Rain', emoji: '🌧️' },
+            { id: 'tunnel', title: '3D Tunnel', emoji: '🚇' },
+            { id: 'dna', title: 'DNA Helix', emoji: '🧬' },
+            { id: 'pendulum', title: 'Pendulum Waves', emoji: '🎯' },
+            { id: 'orbits', title: 'Orbital Mechanics', emoji: '🪐' },
+            { id: 'hexgrid', title: 'Hex Grid', emoji: '⬡' },
+            { id: 'waveform', title: 'Waveform Viz', emoji: '📈' },
+            { id: 'cells', title: 'Cell Division', emoji: '🔬' },
+            { id: 'circuits', title: 'Circuit Board', emoji: '💻' },
+            { id: 'stars', title: 'Starfield', emoji: '✨' },
+            { id: 'plasma', title: 'Plasma Effect', emoji: '🌈' },
+            { id: 'grid3d', title: '3D Grid', emoji: '📐' },
+            { id: 'tree', title: 'Fractal Tree', emoji: '🌳' },
+            { id: 'snow', title: 'Snow Effect', emoji: '❄️' },
+            { id: 'smoke', title: 'Smoke Sim', emoji: '💨' },
+            { id: 'gravity', title: 'Gravity Wells', emoji: '🕳️' },
+            { id: 'strings', title: 'String Art', emoji: '🎻' },
+        ];
+
+        // Performance: Reduced to 4 per page
+        const PER_PAGE = 4;
+        let currentPage = 0;
+        const totalPages = Math.ceil(experiences.length / PER_PAGE);
+
+        const grid = document.getElementById('grid');
+        const dots = document.getElementById('dots');
+        const pageInfo = document.getElementById('pageInfo');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const perfStats = document.getElementById('perfStats');
+
+        // Track active iframes for pause/resume
+        const activeIframes = new Map();
+        let observer = null;
+
+        // Create dots
+        for (let i = 0; i < totalPages; i++) {
+            const dot = document.createElement('div');
+            dot.className = 'dot' + (i === 0 ? ' active' : '');
+            dot.onclick = () => goToPage(i);
+            dots.appendChild(dot);
+        }
+
+        // IntersectionObserver for visibility-based loading/pausing
+        function setupObserver() {
+            if (observer) observer.disconnect();
+
+            observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    const card = entry.target;
+                    const iframe = card.querySelector('iframe');
+                    if (!iframe) return;
+
+                    if (entry.isIntersecting) {
+                        // Resume animation when visible
+                        card.classList.remove('paused');
+                        iframe.contentWindow?.postMessage('neon-resume', '*');
+                    } else {
+                        // Pause animation when off-screen
+                        card.classList.add('paused');
+                        iframe.contentWindow?.postMessage('neon-pause', '*');
+                    }
+                });
+            }, {
+                root: null,
+                rootMargin: '50px',
+                threshold: 0.1
+            });
+        }
+
+        function renderPage() {
+            // Clear existing iframes
+            activeIframes.forEach((iframe, id) => {
+                iframe.contentWindow?.postMessage('neon-pause', '*');
+            });
+            activeIframes.clear();
+            grid.innerHTML = '';
+
+            const start = currentPage * PER_PAGE;
+            const end = Math.min(start + PER_PAGE, experiences.length);
+            const pageExperiences = experiences.slice(start, end);
+
+            setupObserver();
+
+            pageExperiences.forEach((exp, idx) => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.dataset.expId = exp.id;
+                card.innerHTML = `
+                    <div class="card-header">
+                        <span class="card-title">${exp.emoji} ${exp.title}</span>
+                        <a href="experiences/${exp.id}/index.html" target="_blank" class="card-link">FULL ↗</a>
+                    </div>
+                    <div class="iframe-wrapper">
+                        <div class="loading-placeholder">
+                            <div class="spinner"></div>
+                            <span>LOADING...</span>
+                        </div>
+                        <div class="pause-indicator">⏸</div>
+                    </div>
+                `;
+                grid.appendChild(card);
+
+                // Stagger iframe loading for better performance
+                setTimeout(() => {
+                    const wrapper = card.querySelector('.iframe-wrapper');
+                    const iframe = document.createElement('iframe');
+                    iframe.src = `experiences/${exp.id}/index.html`;
+                    iframe.loading = 'lazy';
+
+                    iframe.onload = () => {
+                        const placeholder = wrapper.querySelector('.loading-placeholder');
+                        if (placeholder) placeholder.style.display = 'none';
+                    };
+
+                    wrapper.appendChild(iframe);
+                    activeIframes.set(exp.id, iframe);
+                    observer.observe(card);
+                }, idx * 200); // Stagger by 200ms each
+            });
+
+            // Update UI
+            pageInfo.textContent = `${currentPage + 1} / ${totalPages}`;
+            prevBtn.disabled = currentPage === 0;
+            nextBtn.disabled = currentPage === totalPages - 1;
+
+            // Update dots
+            document.querySelectorAll('.dot').forEach((dot, i) => {
+                dot.classList.toggle('active', i === currentPage);
+            });
+
+            // Scroll to top
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function changePage(delta) {
+            const newPage = currentPage + delta;
+            if (newPage >= 0 && newPage < totalPages) {
+                currentPage = newPage;
+                renderPage();
+            }
+        }
+
+        function goToPage(page) {
+            currentPage = page;
+            renderPage();
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') changePage(-1);
+            if (e.key === 'ArrowRight') changePage(1);
+        });
+
+        // Page visibility API - pause all when tab is hidden
+        document.addEventListener('visibilitychange', () => {
+            const message = document.hidden ? 'neon-pause' : 'neon-resume';
+            activeIframes.forEach(iframe => {
+                iframe.contentWindow?.postMessage(message, '*');
+            });
+        });
+
+        // FPS counter for hub
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+        function updateFPS() {
+            frameCount++;
+            const now = performance.now();
+            if (now - lastFpsTime >= 1000) {
+                perfStats.textContent = `FPS: ${frameCount} | Iframes: ${activeIframes.size}`;
+                frameCount = 0;
+                lastFpsTime = now;
+            }
+            requestAnimationFrame(updateFPS);
+        }
+
+        // Initial render
+        renderPage();
+        updateFPS();
+    </script>
+</body>
+</html>

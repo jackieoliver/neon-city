@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEON CITY // TEMPORAL INTERFACE</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        @font-face {
+            font-family: 'Digital';
+            src: local('Courier New');
+        }
+
+        body {
+            background: #0a0a0f;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Animated background canvas */
+        #bgCanvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+        }
+
+        /* Scanlines overlay */
+        .scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15) 0px,
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+        }
+
+        /* CRT flicker effect */
+        .crt-flicker {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 99;
+            animation: flicker 0.15s infinite;
+            background: rgba(18, 16, 16, 0);
+        }
+
+        @keyframes flicker {
+            0% { opacity: 0.27861; }
+            5% { opacity: 0.34769; }
+            10% { opacity: 0.23604; }
+            15% { opacity: 0.90626; }
+            20% { opacity: 0.18128; }
+            25% { opacity: 0.83891; }
+            30% { opacity: 0.65583; }
+            35% { opacity: 0.67807; }
+            40% { opacity: 0.26559; }
+            45% { opacity: 0.84693; }
+            50% { opacity: 0.96019; }
+            55% { opacity: 0.08594; }
+            60% { opacity: 0.20313; }
+            65% { opacity: 0.71988; }
+            70% { opacity: 0.53455; }
+            75% { opacity: 0.37288; }
+            80% { opacity: 0.71428; }
+            85% { opacity: 0.70419; }
+            90% { opacity: 0.7003; }
+            95% { opacity: 0.36108; }
+            100% { opacity: 0.24387; }
+        }
+
+        /* Main container */
+        .container {
+            position: relative;
+            z-index: 10;
+            text-align: center;
+        }
+
+        /* Header */
+        .header {
+            color: #05d9e8;
+            font-size: 0.8rem;
+            letter-spacing: 0.5em;
+            margin-bottom: 2rem;
+            text-shadow: 0 0 10px #05d9e8, 0 0 20px #05d9e8;
+            animation: headerPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes headerPulse {
+            0%, 100% { opacity: 0.7; }
+            50% { opacity: 1; }
+        }
+
+        /* Main time display */
+        .time-display {
+            font-size: clamp(4rem, 15vw, 12rem);
+            font-weight: bold;
+            color: #ff2a6d;
+            text-shadow:
+                0 0 10px #ff2a6d,
+                0 0 20px #ff2a6d,
+                0 0 40px #ff2a6d,
+                0 0 80px #ff2a6d,
+                0 0 120px rgba(255, 42, 109, 0.5);
+            position: relative;
+            display: inline-block;
+        }
+
+        .time-display::before {
+            content: attr(data-time);
+            position: absolute;
+            left: 2px;
+            top: 0;
+            color: #05d9e8;
+            text-shadow: 0 0 10px #05d9e8;
+            clip-path: polygon(0 0, 100% 0, 100% 45%, 0 45%);
+            animation: glitchTop 2s infinite linear alternate-reverse;
+        }
+
+        .time-display::after {
+            content: attr(data-time);
+            position: absolute;
+            left: -2px;
+            top: 0;
+            color: #05d9e8;
+            text-shadow: 0 0 10px #05d9e8;
+            clip-path: polygon(0 55%, 100% 55%, 100% 100%, 0 100%);
+            animation: glitchBottom 1.5s infinite linear alternate-reverse;
+        }
+
+        @keyframes glitchTop {
+            0% { transform: translate(0); }
+            20% { transform: translate(-3px, 3px); }
+            40% { transform: translate(-3px, -3px); }
+            60% { transform: translate(3px, 3px); }
+            80% { transform: translate(3px, -3px); }
+            100% { transform: translate(0); }
+        }
+
+        @keyframes glitchBottom {
+            0% { transform: translate(0); }
+            20% { transform: translate(3px, -3px); }
+            40% { transform: translate(3px, 3px); }
+            60% { transform: translate(-3px, -3px); }
+            80% { transform: translate(-3px, 3px); }
+            100% { transform: translate(0); }
+        }
+
+        /* Seconds display */
+        .seconds-display {
+            font-size: clamp(1.5rem, 5vw, 3rem);
+            color: #05d9e8;
+            text-shadow: 0 0 10px #05d9e8, 0 0 20px #05d9e8;
+            margin-top: 1rem;
+            letter-spacing: 0.2em;
+        }
+
+        /* Alt time displays container */
+        .alt-times {
+            display: flex;
+            justify-content: center;
+            gap: 3rem;
+            margin-top: 3rem;
+            flex-wrap: wrap;
+        }
+
+        .alt-time-box {
+            background: rgba(5, 217, 232, 0.05);
+            border: 1px solid rgba(5, 217, 232, 0.3);
+            padding: 1.5rem 2rem;
+            position: relative;
+        }
+
+        .alt-time-box::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border: 1px solid rgba(255, 42, 109, 0.2);
+            transform: translate(3px, 3px);
+            pointer-events: none;
+        }
+
+        .alt-time-label {
+            font-size: 0.7rem;
+            color: #05d9e8;
+            letter-spacing: 0.3em;
+            margin-bottom: 0.5rem;
+            opacity: 0.7;
+        }
+
+        .alt-time-value {
+            font-size: clamp(1rem, 2.5vw, 1.5rem);
+            color: #ff2a6d;
+            text-shadow: 0 0 5px #ff2a6d;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 0.1em;
+        }
+
+        /* Hex display special styling */
+        .hex-value {
+            color: #05d9e8;
+            text-shadow: 0 0 5px #05d9e8;
+        }
+
+        /* Binary display */
+        .binary-value {
+            font-size: clamp(0.6rem, 1.5vw, 0.9rem);
+            word-break: break-all;
+            max-width: 200px;
+        }
+
+        /* Date display */
+        .date-display {
+            margin-top: 2rem;
+            color: #05d9e8;
+            font-size: 0.9rem;
+            letter-spacing: 0.3em;
+            opacity: 0.6;
+        }
+
+        /* Unix timestamp */
+        .unix-display {
+            margin-top: 1rem;
+            color: #ff2a6d;
+            font-size: 0.8rem;
+            letter-spacing: 0.1em;
+            opacity: 0.5;
+        }
+
+        /* Decorative corners */
+        .corner {
+            position: fixed;
+            width: 50px;
+            height: 50px;
+            border-color: #05d9e8;
+            z-index: 50;
+        }
+
+        .corner-tl {
+            top: 20px;
+            left: 20px;
+            border-top: 2px solid;
+            border-left: 2px solid;
+        }
+
+        .corner-tr {
+            top: 20px;
+            right: 20px;
+            border-top: 2px solid;
+            border-right: 2px solid;
+        }
+
+        .corner-bl {
+            bottom: 20px;
+            left: 20px;
+            border-bottom: 2px solid;
+            border-left: 2px solid;
+        }
+
+        .corner-br {
+            bottom: 20px;
+            right: 20px;
+            border-bottom: 2px solid;
+            border-right: 2px solid;
+        }
+
+        /* Glitch animation trigger class */
+        .glitching {
+            animation: intenseGlitch 0.3s ease-in-out;
+        }
+
+        @keyframes intenseGlitch {
+            0% { transform: translate(0) skew(0deg); filter: hue-rotate(0deg); }
+            10% { transform: translate(-5px, 5px) skew(5deg); filter: hue-rotate(90deg); }
+            20% { transform: translate(5px, -5px) skew(-5deg); filter: hue-rotate(180deg); }
+            30% { transform: translate(-5px, -5px) skew(5deg); filter: hue-rotate(270deg); }
+            40% { transform: translate(5px, 5px) skew(-5deg); filter: hue-rotate(360deg); }
+            50% { transform: translate(0) skew(0deg); filter: hue-rotate(0deg); }
+            60% { transform: translate(-3px, 3px) skew(3deg); }
+            70% { transform: translate(3px, -3px) skew(-3deg); }
+            80% { transform: translate(-3px, -3px) skew(3deg); }
+            90% { transform: translate(3px, 3px) skew(-3deg); }
+            100% { transform: translate(0) skew(0deg); }
+        }
+
+        /* Colon blink */
+        .colon {
+            animation: colonBlink 1s step-end infinite;
+        }
+
+        @keyframes colonBlink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.3; }
+        }
+
+        /* Status bar */
+        .status-bar {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 2rem;
+            font-size: 0.7rem;
+            color: #05d9e8;
+            opacity: 0.5;
+            z-index: 50;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            background: #ff2a6d;
+            border-radius: 50%;
+            animation: statusPulse 1s ease-in-out infinite;
+        }
+
+        @keyframes statusPulse {
+            0%, 100% { opacity: 0.3; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1); }
+        }
+
+        /* Random noise overlay */
+        .noise {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 98;
+            opacity: 0.03;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+        }
+    </style>
+</head>
+<body>
+    <canvas id="bgCanvas"></canvas>
+    <div class="scanlines"></div>
+    <div class="crt-flicker"></div>
+    <div class="noise"></div>
+
+    <div class="corner corner-tl"></div>
+    <div class="corner corner-tr"></div>
+    <div class="corner corner-bl"></div>
+    <div class="corner corner-br"></div>
+
+    <div class="container">
+        <div class="header">// TEMPORAL INTERFACE v2.077 //</div>
+
+        <div class="time-display" id="mainTime" data-time="00:00">00:00</div>
+
+        <div class="seconds-display" id="seconds">: 00</div>
+
+        <div class="alt-times">
+            <div class="alt-time-box">
+                <div class="alt-time-label">// HEXADECIMAL</div>
+                <div class="alt-time-value hex-value" id="hexTime">0x000000</div>
+            </div>
+            <div class="alt-time-box">
+                <div class="alt-time-label">// BINARY</div>
+                <div class="alt-time-value binary-value" id="binaryTime">00000000</div>
+            </div>
+            <div class="alt-time-box">
+                <div class="alt-time-label">// OCTAL</div>
+                <div class="alt-time-value" id="octalTime">000:000:000</div>
+            </div>
+        </div>
+
+        <div class="date-display" id="dateDisplay">2077.01.01</div>
+        <div class="unix-display" id="unixDisplay">UNIX: 0000000000</div>
+    </div>
+
+    <div class="status-bar">
+        <div class="status-item">
+            <div class="status-dot"></div>
+            <span>SYNC ACTIVE</span>
+        </div>
+        <div class="status-item">
+            <div class="status-dot"></div>
+            <span>NET LINK</span>
+        </div>
+        <div class="status-item">
+            <div class="status-dot"></div>
+            <span>60 FPS</span>
+        </div>
+    </div>
+
+    <script>
+        // Canvas background animation
+        const canvas = document.getElementById('bgCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+        let particles = [];
+        let gridLines = [];
+        let time = 0;
+
+        const NEON_PINK = '#ff2a6d';
+        const NEON_CYAN = '#05d9e8';
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initParticles();
+            initGrid();
+        }
+
+        function initParticles() {
+            particles = [];
+            const count = Math.floor((width * height) / 15000);
+            for (let i = 0; i < count; i++) {
+                particles.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    vx: (Math.random() - 0.5) * 0.5,
+                    vy: (Math.random() - 0.5) * 0.5,
+                    size: Math.random() * 2 + 0.5,
+                    color: Math.random() > 0.5 ? NEON_PINK : NEON_CYAN,
+                    alpha: Math.random() * 0.5 + 0.2
+                });
+            }
+        }
+
+        function initGrid() {
+            gridLines = [];
+            const spacing = 80;
+
+            // Horizontal lines
+            for (let y = 0; y < height; y += spacing) {
+                gridLines.push({
+                    x1: 0, y1: y, x2: width, y2: y,
+                    type: 'h',
+                    offset: Math.random() * 1000
+                });
+            }
+
+            // Vertical lines
+            for (let x = 0; x < width; x += spacing) {
+                gridLines.push({
+                    x1: x, y1: 0, x2: x, y2: height,
+                    type: 'v',
+                    offset: Math.random() * 1000
+                });
+            }
+        }
+
+        function drawBackground() {
+            // Dark gradient background
+            const gradient = ctx.createRadialGradient(
+                width / 2, height / 2, 0,
+                width / 2, height / 2, Math.max(width, height) / 1.5
+            );
+            gradient.addColorStop(0, '#1a1a2e');
+            gradient.addColorStop(0.5, '#0f0f1a');
+            gradient.addColorStop(1, '#0a0a0f');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+        }
+
+        function drawGrid() {
+            ctx.lineWidth = 1;
+
+            gridLines.forEach(line => {
+                const pulse = Math.sin((time + line.offset) * 0.002) * 0.5 + 0.5;
+                const alpha = 0.03 + pulse * 0.05;
+
+                ctx.strokeStyle = `rgba(5, 217, 232, ${alpha})`;
+                ctx.beginPath();
+                ctx.moveTo(line.x1, line.y1);
+                ctx.lineTo(line.x2, line.y2);
+                ctx.stroke();
+            });
+        }
+
+        function drawParticles() {
+            particles.forEach(p => {
+                // Update position
+                p.x += p.vx;
+                p.y += p.vy;
+
+                // Wrap around
+                if (p.x < 0) p.x = width;
+                if (p.x > width) p.x = 0;
+                if (p.y < 0) p.y = height;
+                if (p.y > height) p.y = 0;
+
+                // Pulsing alpha
+                const pulse = Math.sin(time * 0.005 + p.x * 0.01) * 0.3 + 0.7;
+
+                // Draw particle
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.globalAlpha = p.alpha * pulse;
+                ctx.fill();
+
+                // Glow effect
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size * 3, 0, Math.PI * 2);
+                const glowGradient = ctx.createRadialGradient(
+                    p.x, p.y, 0,
+                    p.x, p.y, p.size * 3
+                );
+                glowGradient.addColorStop(0, p.color);
+                glowGradient.addColorStop(1, 'transparent');
+                ctx.fillStyle = glowGradient;
+                ctx.globalAlpha = p.alpha * pulse * 0.3;
+                ctx.fill();
+            });
+            ctx.globalAlpha = 1;
+        }
+
+        function drawDataStreams() {
+            const streamCount = 5;
+
+            for (let i = 0; i < streamCount; i++) {
+                const x = (time * 0.5 + i * (width / streamCount)) % width;
+                const alpha = 0.1 + Math.sin(time * 0.003 + i) * 0.05;
+
+                const gradient = ctx.createLinearGradient(x, 0, x, height);
+                gradient.addColorStop(0, 'transparent');
+                gradient.addColorStop(0.3, `rgba(255, 42, 109, ${alpha})`);
+                gradient.addColorStop(0.5, `rgba(255, 42, 109, ${alpha * 2})`);
+                gradient.addColorStop(0.7, `rgba(255, 42, 109, ${alpha})`);
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.strokeStyle = gradient;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+        }
+
+        function drawHexRain() {
+            const chars = '0123456789ABCDEF';
+            ctx.font = '10px Courier New';
+            ctx.fillStyle = NEON_CYAN;
+
+            for (let i = 0; i < 10; i++) {
+                const x = (Math.sin(time * 0.001 + i * 0.7) + 1) * width / 2;
+                const y = (time * 0.5 + i * 100) % height;
+                const char = chars[Math.floor(Math.random() * chars.length)];
+                ctx.globalAlpha = 0.1;
+                ctx.fillText(char, x, y);
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        function animate() {
+            time++;
+
+            drawBackground();
+            drawGrid();
+            drawDataStreams();
+            drawParticles();
+            drawHexRain();
+
+            requestAnimationFrame(animate);
+        }
+
+        // Time display functions
+        const mainTimeEl = document.getElementById('mainTime');
+        const secondsEl = document.getElementById('seconds');
+        const hexTimeEl = document.getElementById('hexTime');
+        const binaryTimeEl = document.getElementById('binaryTime');
+        const octalTimeEl = document.getElementById('octalTime');
+        const dateDisplayEl = document.getElementById('dateDisplay');
+        const unixDisplayEl = document.getElementById('unixDisplay');
+
+        let lastSecond = -1;
+
+        function padZero(num, length = 2) {
+            return num.toString().padStart(length, '0');
+        }
+
+        function toBinary(num, bits = 6) {
+            return num.toString(2).padStart(bits, '0');
+        }
+
+        function toOctal(num) {
+            return num.toString(8).padStart(3, '0');
+        }
+
+        function updateTime() {
+            const now = new Date();
+            const hours = now.getHours();
+            const minutes = now.getMinutes();
+            const seconds = now.getSeconds();
+            const milliseconds = now.getMilliseconds();
+
+            // Main time display
+            const timeStr = `${padZero(hours)}:${padZero(minutes)}`;
+            mainTimeEl.textContent = timeStr;
+            mainTimeEl.setAttribute('data-time', timeStr);
+
+            // Seconds with milliseconds visualization
+            const msProgress = Math.floor(milliseconds / 100);
+            secondsEl.textContent = `: ${padZero(seconds)}.${msProgress}`;
+
+            // Trigger glitch on second change
+            if (seconds !== lastSecond) {
+                mainTimeEl.classList.add('glitching');
+                setTimeout(() => mainTimeEl.classList.remove('glitching'), 300);
+                lastSecond = seconds;
+            }
+
+            // Hex time (seconds since midnight)
+            const secondsSinceMidnight = hours * 3600 + minutes * 60 + seconds;
+            const hexValue = secondsSinceMidnight.toString(16).toUpperCase().padStart(6, '0');
+            hexTimeEl.textContent = `0x${hexValue}`;
+
+            // Binary time
+            const binaryStr = `${toBinary(hours, 5)}:${toBinary(minutes)}:${toBinary(seconds)}`;
+            binaryTimeEl.textContent = binaryStr;
+
+            // Octal time
+            const octalStr = `${toOctal(hours)}:${toOctal(minutes)}:${toOctal(seconds)}`;
+            octalTimeEl.textContent = octalStr;
+
+            // Date display
+            const year = now.getFullYear();
+            const month = padZero(now.getMonth() + 1);
+            const day = padZero(now.getDate());
+            dateDisplayEl.textContent = `${year}.${month}.${day}`;
+
+            // Unix timestamp
+            const unixTime = Math.floor(now.getTime() / 1000);
+            unixDisplayEl.textContent = `UNIX: ${unixTime}`;
+
+            requestAnimationFrame(updateTime);
+        }
+
+        // Random glitch effect
+        function randomGlitch() {
+            if (Math.random() > 0.95) {
+                mainTimeEl.classList.add('glitching');
+                setTimeout(() => mainTimeEl.classList.remove('glitching'), 150);
+            }
+            setTimeout(randomGlitch, 100 + Math.random() * 500);
+        }
+
+        // Initialize
+        window.addEventListener('resize', resize);
+        resize();
+        animate();
+        updateTime();
+        randomGlitch();
+
+        // Easter egg: click to trigger glitch
+        document.addEventListener('click', () => {
+            mainTimeEl.classList.add('glitching');
+            setTimeout(() => mainTimeEl.classList.remove('glitching'), 500);
+        });
+    </script>
+</body>
+</html>

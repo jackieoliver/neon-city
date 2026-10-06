@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Terrain Generator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0f;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+            cursor: crosshair;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .ui-overlay {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: #05d9e8;
+            text-shadow: 0 0 10px #05d9e8, 0 0 20px #05d9e8;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        .title {
+            font-size: 24px;
+            letter-spacing: 4px;
+            margin-bottom: 10px;
+            color: #ff2a6d;
+            text-shadow: 0 0 10px #ff2a6d, 0 0 30px #ff2a6d;
+        }
+
+        .info {
+            font-size: 12px;
+            opacity: 0.8;
+            letter-spacing: 2px;
+        }
+
+        .seed-display {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: #05d9e8;
+            font-size: 11px;
+            letter-spacing: 1px;
+            opacity: 0.6;
+            text-shadow: 0 0 5px #05d9e8;
+        }
+
+        .scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 0, 0, 0.1) 2px,
+                rgba(0, 0, 0, 0.1) 4px
+            );
+            z-index: 99;
+        }
+
+        .vignette {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.8) 100%);
+            z-index: 98;
+        }
+    </style>
+</head>
+<body>
+    <div class="ui-overlay">
+        <div class="title">TERRAIN.EXE</div>
+        <div class="info">[ CLICK TO REGENERATE ]</div>
+    </div>
+    <div class="seed-display">SEED: <span id="seedValue">0000000</span></div>
+    <div class="scanlines"></div>
+    <div class="vignette"></div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        // Simplex Noise implementation
+        class SimplexNoise {
+            constructor(seed = Math.random()) {
+                this.p = new Uint8Array(256);
+                this.perm = new Uint8Array(512);
+                this.permMod12 = new Uint8Array(512);
+
+                const random = this.seededRandom(seed);
+                for (let i = 0; i < 256; i++) {
+                    this.p[i] = i;
+                }
+                for (let i = 255; i > 0; i--) {
+                    const j = Math.floor(random() * (i + 1));
+                    [this.p[i], this.p[j]] = [this.p[j], this.p[i]];
+                }
+                for (let i = 0; i < 512; i++) {
+                    this.perm[i] = this.p[i & 255];
+                    this.permMod12[i] = this.perm[i] % 12;
+                }
+            }
+
+            seededRandom(seed) {
+                return function() {
+                    seed = (seed * 9301 + 49297) % 233280;
+                    return seed / 233280;
+                };
+            }
+
+            grad3 = [
+                [1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],
+                [1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],
+                [0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]
+            ];
+
+            dot2(g, x, y) {
+                return g[0] * x + g[1] * y;
+            }
+
+            noise2D(xin, yin) {
+                const F2 = 0.5 * (Math.sqrt(3) - 1);
+                const G2 = (3 - Math.sqrt(3)) / 6;
+
+                let n0, n1, n2;
+                const s = (xin + yin) * F2;
+                const i = Math.floor(xin + s);
+                const j = Math.floor(yin + s);
+                const t = (i + j) * G2;
+                const X0 = i - t;
+                const Y0 = j - t;
+                const x0 = xin - X0;
+                const y0 = yin - Y0;
+
+                let i1, j1;
+                if (x0 > y0) { i1 = 1; j1 = 0; }
+                else { i1 = 0; j1 = 1; }
+
+                const x1 = x0 - i1 + G2;
+                const y1 = y0 - j1 + G2;
+                const x2 = x0 - 1 + 2 * G2;
+                const y2 = y0 - 1 + 2 * G2;
+
+                const ii = i & 255;
+                const jj = j & 255;
+                const gi0 = this.permMod12[ii + this.perm[jj]];
+                const gi1 = this.permMod12[ii + i1 + this.perm[jj + j1]];
+                const gi2 = this.permMod12[ii + 1 + this.perm[jj + 1]];
+
+                let t0 = 0.5 - x0 * x0 - y0 * y0;
+                if (t0 < 0) n0 = 0;
+                else {
+                    t0 *= t0;
+                    n0 = t0 * t0 * this.dot2(this.grad3[gi0], x0, y0);
+                }
+
+                let t1 = 0.5 - x1 * x1 - y1 * y1;
+                if (t1 < 0) n1 = 0;
+                else {
+                    t1 *= t1;
+                    n1 = t1 * t1 * this.dot2(this.grad3[gi1], x1, y1);
+                }
+
+                let t2 = 0.5 - x2 * x2 - y2 * y2;
+                if (t2 < 0) n2 = 0;
+                else {
+                    t2 *= t2;
+                    n2 = t2 * t2 * this.dot2(this.grad3[gi2], x2, y2);
+                }
+
+                return 70 * (n0 + n1 + n2);
+            }
+
+            fbm(x, y, octaves = 6, lacunarity = 2, persistence = 0.5) {
+                let total = 0;
+                let frequency = 1;
+                let amplitude = 1;
+                let maxValue = 0;
+
+                for (let i = 0; i < octaves; i++) {
+                    total += this.noise2D(x * frequency, y * frequency) * amplitude;
+                    maxValue += amplitude;
+                    amplitude *= persistence;
+                    frequency *= lacunarity;
+                }
+
+                return total / maxValue;
+            }
+        }
+
+        // Main terrain generator
+        class TerrainGenerator {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.seed = Math.random() * 100000;
+                this.noise = new SimplexNoise(this.seed);
+                this.time = 0;
+                this.terrain = [];
+                this.waterLevel = 0.25;
+
+                this.colors = {
+                    neonPink: '#ff2a6d',
+                    neonCyan: '#05d9e8',
+                    deepPurple: '#1a0a2e',
+                    darkBg: '#0a0a0f',
+                    midPurple: '#2d1b4e',
+                    hotPink: '#ff6b9d',
+                    electricBlue: '#00ffff',
+                    lavaOrange: '#ff4500',
+                    lavaYellow: '#ffa500'
+                };
+
+                this.resize();
+                this.generateTerrain();
+                this.bindEvents();
+                this.animate();
+            }
+
+            resize() {
+                this.width = window.innerWidth;
+                this.height = window.innerHeight;
+                this.canvas.width = this.width;
+                this.canvas.height = this.height;
+                this.cols = Math.ceil(this.width / 2) + 1;
+                this.generateTerrain();
+            }
+
+            bindEvents() {
+                window.addEventListener('resize', () => this.resize());
+                this.canvas.addEventListener('click', () => this.regenerate());
+            }
+
+            regenerate() {
+                this.seed = Math.random() * 100000;
+                this.noise = new SimplexNoise(this.seed);
+                document.getElementById('seedValue').textContent = Math.floor(this.seed).toString().padStart(7, '0');
+                this.generateTerrain();
+            }
+
+            generateTerrain() {
+                this.terrain = [];
+                const baseY = this.height * 0.6;
+
+                for (let x = 0; x < this.cols; x++) {
+                    const nx = x / this.cols;
+
+                    // Multi-octave noise for varied terrain
+                    let height = this.noise.fbm(nx * 3, 0, 6, 2, 0.5) * 0.5;
+                    height += this.noise.fbm(nx * 8, 100, 4, 2, 0.4) * 0.3;
+                    height += this.noise.fbm(nx * 15, 200, 3, 2, 0.3) * 0.2;
+
+                    // Ridge noise for sharp peaks
+                    const ridge = 1 - Math.abs(this.noise.fbm(nx * 4, 300, 4, 2, 0.5));
+                    height += ridge * ridge * 0.4;
+
+                    this.terrain.push({
+                        x: x * 2,
+                        baseHeight: height,
+                        isWater: height < this.waterLevel
+                    });
+                }
+            }
+
+            getHeightColor(height, x) {
+                const t = this.time * 0.001;
+
+                if (height < this.waterLevel) {
+                    // Lava/water areas
+                    const flow = Math.sin(x * 0.02 + t * 3) * 0.5 + 0.5;
+                    const pulse = Math.sin(t * 5 + x * 0.05) * 0.3 + 0.7;
+
+                    if (height < this.waterLevel * 0.5) {
+                        // Deep lava - more orange/yellow
+                        const r = Math.floor(255 * pulse);
+                        const g = Math.floor((69 + flow * 100) * pulse);
+                        const b = Math.floor(30 * (1 - flow));
+                        return `rgb(${r},${g},${b})`;
+                    } else {
+                        // Shallow lava - transitioning
+                        const blend = (height - this.waterLevel * 0.5) / (this.waterLevel * 0.5);
+                        const r = Math.floor((255 - blend * 100) * pulse);
+                        const g = Math.floor((100 - blend * 80) * pulse);
+                        const b = Math.floor((50 + blend * 50) * pulse);
+                        return `rgb(${r},${g},${b})`;
+                    }
+                }
+
+                // Terrain coloring based on height
+                const normalizedHeight = (height - this.waterLevel) / (1 - this.waterLevel);
+
+                if (normalizedHeight < 0.2) {
+                    // Low terrain - dark purple
+                    const blend = normalizedHeight / 0.2;
+                    return this.lerpColor('#1a0a2e', '#2d1b4e', blend);
+                } else if (normalizedHeight < 0.4) {
+                    // Mid-low - purple to pink
+                    const blend = (normalizedHeight - 0.2) / 0.2;
+                    return this.lerpColor('#2d1b4e', '#5a2a5a', blend);
+                } else if (normalizedHeight < 0.6) {
+                    // Mid - pink tones
+                    const blend = (normalizedHeight - 0.4) / 0.2;
+                    const glow = Math.sin(t * 2 + x * 0.01) * 0.1 + 0.9;
+                    return this.lerpColor('#5a2a5a', '#8b3a8b', blend * glow);
+                } else if (normalizedHeight < 0.8) {
+                    // High - neon pink highlights
+                    const blend = (normalizedHeight - 0.6) / 0.2;
+                    const pulse = Math.sin(t * 3 + x * 0.02) * 0.15 + 0.85;
+                    return this.lerpColor('#8b3a8b', '#ff2a6d', blend * pulse);
+                } else {
+                    // Peaks - cyan glow
+                    const blend = (normalizedHeight - 0.8) / 0.2;
+                    const pulse = Math.sin(t * 4 + x * 0.03) * 0.2 + 0.8;
+                    return this.lerpColor('#ff2a6d', '#05d9e8', blend * pulse);
+                }
+            }
+
+            lerpColor(color1, color2, t) {
+                const c1 = this.hexToRgb(color1);
+                const c2 = this.hexToRgb(color2);
+                const r = Math.floor(c1.r + (c2.r - c1.r) * t);
+                const g = Math.floor(c1.g + (c2.g - c1.g) * t);
+                const b = Math.floor(c1.b + (c2.b - c1.b) * t);
+                return `rgb(${r},${g},${b})`;
+            }
+
+            hexToRgb(hex) {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16)
+                } : { r: 0, g: 0, b: 0 };
+            }
+
+            drawTerrain() {
+                const baseY = this.height * 0.55;
+                const heightScale = this.height * 0.45;
+                const t = this.time * 0.001;
+
+                // Draw back mountains (atmosphere)
+                this.ctx.globalAlpha = 0.3;
+                for (let layer = 3; layer >= 1; layer--) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(0, this.height);
+
+                    for (let x = 0; x < this.cols; x++) {
+                        const point = this.terrain[x];
+                        const layerOffset = layer * 0.15;
+                        const layerHeight = point.baseHeight * (1 - layer * 0.2);
+                        const y = baseY - layerHeight * heightScale * 0.6 + layer * 50;
+
+                        if (x === 0) this.ctx.moveTo(point.x, y);
+                        else this.ctx.lineTo(point.x, y);
+                    }
+
+                    this.ctx.lineTo(this.width, this.height);
+                    this.ctx.closePath();
+
+                    const gradient = this.ctx.createLinearGradient(0, baseY - heightScale * 0.5, 0, this.height);
+                    gradient.addColorStop(0, `rgba(45, 27, 78, ${0.3 / layer})`);
+                    gradient.addColorStop(1, 'transparent');
+                    this.ctx.fillStyle = gradient;
+                    this.ctx.fill();
+                }
+                this.ctx.globalAlpha = 1;
+
+                // Draw main terrain with vertical stripes for 3D effect
+                for (let x = 0; x < this.cols - 1; x++) {
+                    const point = this.terrain[x];
+                    const nextPoint = this.terrain[x + 1];
+
+                    let height = point.baseHeight;
+
+                    // Add subtle animation to water/lava
+                    if (height < this.waterLevel) {
+                        height += Math.sin(t * 3 + x * 0.1) * 0.02;
+                    }
+
+                    const y = baseY - height * heightScale;
+                    const nextY = baseY - nextPoint.baseHeight * heightScale;
+
+                    // Draw vertical slice
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(point.x, y);
+                    this.ctx.lineTo(nextPoint.x, nextY);
+                    this.ctx.lineTo(nextPoint.x, this.height);
+                    this.ctx.lineTo(point.x, this.height);
+                    this.ctx.closePath();
+
+                    // Create gradient from top to bottom
+                    const gradient = this.ctx.createLinearGradient(0, y, 0, this.height);
+                    const topColor = this.getHeightColor(height, x);
+                    gradient.addColorStop(0, topColor);
+                    gradient.addColorStop(0.3, this.darkenColor(topColor, 0.7));
+                    gradient.addColorStop(1, '#0a0a0f');
+
+                    this.ctx.fillStyle = gradient;
+                    this.ctx.fill();
+                }
+
+                // Draw glowing edge line
+                this.ctx.beginPath();
+                this.ctx.moveTo(0, baseY - this.terrain[0].baseHeight * heightScale);
+
+                for (let x = 0; x < this.cols; x++) {
+                    const point = this.terrain[x];
+                    let height = point.baseHeight;
+                    if (height < this.waterLevel) {
+                        height += Math.sin(t * 3 + x * 0.1) * 0.02;
+                    }
+                    const y = baseY - height * heightScale;
+                    this.ctx.lineTo(point.x, y);
+                }
+
+                this.ctx.strokeStyle = '#ff2a6d';
+                this.ctx.lineWidth = 2;
+                this.ctx.shadowColor = '#ff2a6d';
+                this.ctx.shadowBlur = 15;
+                this.ctx.stroke();
+
+                // Second glow pass
+                this.ctx.strokeStyle = '#05d9e8';
+                this.ctx.lineWidth = 1;
+                this.ctx.shadowColor = '#05d9e8';
+                this.ctx.shadowBlur = 10;
+                this.ctx.stroke();
+
+                this.ctx.shadowBlur = 0;
+            }
+
+            darkenColor(color, factor) {
+                const match = color.match(/rgb\((\d+),(\d+),(\d+)\)/);
+                if (match) {
+                    const r = Math.floor(parseInt(match[1]) * factor);
+                    const g = Math.floor(parseInt(match[2]) * factor);
+                    const b = Math.floor(parseInt(match[3]) * factor);
+                    return `rgb(${r},${g},${b})`;
+                }
+                return color;
+            }
+
+            drawStars() {
+                const t = this.time * 0.0005;
+
+                for (let i = 0; i < 150; i++) {
+                    const x = ((i * 7919) % this.width);
+                    const y = ((i * 6571) % (this.height * 0.5));
+                    const twinkle = Math.sin(t * 3 + i) * 0.5 + 0.5;
+                    const size = ((i * 3) % 3) + 1;
+
+                    this.ctx.beginPath();
+                    this.ctx.arc(x, y, size * twinkle, 0, Math.PI * 2);
+
+                    if (i % 5 === 0) {
+                        this.ctx.fillStyle = `rgba(5, 217, 232, ${0.3 + twinkle * 0.7})`;
+                    } else if (i % 7 === 0) {
+                        this.ctx.fillStyle = `rgba(255, 42, 109, ${0.3 + twinkle * 0.7})`;
+                    } else {
+                        this.ctx.fillStyle = `rgba(255, 255, 255, ${0.2 + twinkle * 0.5})`;
+                    }
+                    this.ctx.fill();
+                }
+            }
+
+            drawGrid() {
+                const t = this.time * 0.001;
+                const horizonY = this.height * 0.7;
+
+                this.ctx.strokeStyle = 'rgba(5, 217, 232, 0.1)';
+                this.ctx.lineWidth = 1;
+
+                // Horizontal lines with perspective
+                for (let i = 0; i < 20; i++) {
+                    const progress = i / 20;
+                    const y = horizonY + (this.height - horizonY) * Math.pow(progress, 1.5);
+                    const alpha = 0.05 + progress * 0.1;
+
+                    this.ctx.strokeStyle = `rgba(5, 217, 232, ${alpha})`;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(0, y);
+                    this.ctx.lineTo(this.width, y);
+                    this.ctx.stroke();
+                }
+
+                // Vertical lines converging
+                const vanishX = this.width / 2;
+                for (let i = -10; i <= 10; i++) {
+                    const baseX = vanishX + i * 100;
+                    const bottomX = vanishX + i * 300;
+
+                    this.ctx.strokeStyle = `rgba(255, 42, 109, 0.05)`;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(baseX, horizonY);
+                    this.ctx.lineTo(bottomX, this.height);
+                    this.ctx.stroke();
+                }
+            }
+
+            animate() {
+                this.time = performance.now();
+
+                // Clear with dark background
+                this.ctx.fillStyle = '#0a0a0f';
+                this.ctx.fillRect(0, 0, this.width, this.height);
+
+                // Draw background elements
+                this.drawStars();
+                this.drawGrid();
+
+                // Draw main terrain
+                this.drawTerrain();
+
+                // Add chromatic aberration effect on edges
+                this.addGlowEffects();
+
+                requestAnimationFrame(() => this.animate());
+            }
+
+            addGlowEffects() {
+                const t = this.time * 0.002;
+
+                // Ambient glow at bottom
+                const gradient = this.ctx.createLinearGradient(0, this.height * 0.8, 0, this.height);
+                gradient.addColorStop(0, 'transparent');
+                gradient.addColorStop(1, `rgba(255, 42, 109, ${0.1 + Math.sin(t) * 0.05})`);
+                this.ctx.fillStyle = gradient;
+                this.ctx.fillRect(0, this.height * 0.8, this.width, this.height * 0.2);
+
+                // Top atmospheric glow
+                const topGradient = this.ctx.createLinearGradient(0, 0, 0, this.height * 0.3);
+                topGradient.addColorStop(0, `rgba(5, 217, 232, ${0.05 + Math.sin(t * 1.5) * 0.02})`);
+                topGradient.addColorStop(1, 'transparent');
+                this.ctx.fillStyle = topGradient;
+                this.ctx.fillRect(0, 0, this.width, this.height * 0.3);
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            const terrain = new TerrainGenerator();
+            document.getElementById('seedValue').textContent =
+                Math.floor(terrain.seed).toString().padStart(7, '0');
+        });
+    </script>
+</body>
+</html>
